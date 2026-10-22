@@ -75,13 +75,13 @@ class Supabase:
         if key.startswith("eyJ"):  # legacy JWT keys also go in the Authorization header
             self.headers["Authorization"] = f"Bearer {key}"
 
-    def select_all(self, table: str, order: str, select: str = "*") -> list[dict]:
+    def select_all(self, table: str, order: str, select: str = "*", filters: Optional[dict] = None) -> list[dict]:
         rows, offset, page = [], 0, 1000
         while True:
             r = requests.get(
                 f"{self.base}/{table}",
                 headers=self.headers,
-                params={"select": select, "order": order, "limit": page, "offset": offset},
+                params={"select": select, "order": order, "limit": page, "offset": offset, **(filters or {})},
                 timeout=60,
             )
             r.raise_for_status()
@@ -97,6 +97,21 @@ class Supabase:
             r = requests.post(f"{self.base}/{table}", headers=headers, json=rows[i:i + chunk], timeout=60)
             if r.status_code >= 300:
                 raise RuntimeError(f"Supabase upsert into {table} failed ({r.status_code}): {r.text[:500]}")
+
+    def mark_processed(self, table: str, ids: list[str], chunk: int = 100) -> None:
+        headers = {**self.headers, "Prefer": "return=minimal"}
+        for i in range(0, len(ids), chunk):
+            id_list = ",".join('"' + x.replace('"', "") + '"' for x in ids[i:i + chunk])
+            r = requests.patch(f"{self.base}/{table}", headers=headers, params={"id": f"in.({id_list})"},
+                               json={"processed": True}, timeout=60)
+            if r.status_code >= 300:
+                raise RuntimeError(f"Supabase update of {table} failed ({r.status_code}): {r.text[:500]}")
+
+    def delete_where(self, table: str, filters: dict) -> None:
+        r = requests.delete(f"{self.base}/{table}", headers={**self.headers, "Prefer": "return=minimal"},
+                            params=filters, timeout=60)
+        if r.status_code >= 300:
+            raise RuntimeError(f"Supabase delete from {table} failed ({r.status_code}): {r.text[:500]}")
 
 
 # --- Geocoding ------------------------------------------------------------------

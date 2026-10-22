@@ -19,10 +19,12 @@ Everything runs on free tiers. The only paid option is GitHub Pages for a privat
 
 ## One-time setup (about 30 minutes)
 
-### 1. Create the bot Gmail account
-1. Create a new Gmail account, e.g. `ourflips.listings@gmail.com`.
-2. Turn on **2-Step Verification**: Google Account → Security → 2-Step Verification.
-3. Create an **app password**: go to <https://myaccount.google.com/apppasswords>, name it `deal-finder` and copy the 16-letter code. You don't need to turn on IMAP; it's always on now.
+### 1. Create the bot Gmail account and the email sync
+1. Create a new Gmail account (ours is the bot inbox).
+2. While signed in as that account, go to <https://script.google.com> → **New project**.
+3. Delete the sample code, paste in `apps_script/Code.gs`, and put the ingest token in `INGEST_TOKEN`. The token is in Supabase table `private.settings`.
+4. Save, choose **setup** in the function dropdown, and click **Run**. Allow access when Google asks.
+   It then copies new emails into Supabase every 4 hours. No app password or 2-Step Verification is needed.
 
 ### 2. Set up listing alerts, sent to the bot Gmail
 On **Property24** and **Private Property**, sign up with the bot Gmail, then save searches with email alerts turned on (daily or instant):
@@ -50,10 +52,9 @@ In the repo, go to **Settings → Secrets and variables → Actions → New repo
 
 | Name | Value |
 |---|---|
-| `GMAIL_ADDRESS` | the bot Gmail address |
-| `GMAIL_APP_PASSWORD` | the 16-letter app password |
 | `SUPABASE_SECRET_KEY` | the `sb_secret_…` key |
-| `NOTIFY_EMAIL` *(optional)* | your own email. You'll get a message when a new listing is 10%+ below similar ones |
+| `GMAIL_ADDRESS` + `GMAIL_APP_PASSWORD` *(optional)* | only if you'd rather read Gmail directly with an app password instead of the Apps Script |
+| `NOTIFY_EMAIL` *(optional, needs the app password)* | your own email. You'll get a message when a new listing is 10%+ below similar ones |
 
 Then go to **Actions → Daily listing check → Run workflow** to test it. The run's summary page shows how many emails and listings it found, plus the top 10 deals. After that it runs every day at 05:17.
 

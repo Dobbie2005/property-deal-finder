@@ -14,8 +14,9 @@ import imaplib
 import html
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email import policy
+from email.message import EmailMessage
 from pathlib import Path
 
 from dealfinder import config
@@ -81,6 +82,21 @@ def merge_into(existing: dict, new: dict) -> dict:
     return merged
 
 
+def raw_row_to_message(row: dict) -> EmailMessage:
+    """Rebuild an email from a raw_emails row so the normal parser can read it."""
+    msg = EmailMessage()
+    msg["From"] = (row.get("sender") or "").replace("\n", " ")
+    msg["Subject"] = (row.get("subject") or "").replace("\n", " ")
+    plain, body_html = row.get("plain") or "", row.get("html") or ""
+    if plain:
+        msg.set_content(plain)
+        if body_html:
+            msg.add_alternative(body_html, subtype="html")
+    elif body_html:
+        msg.set_content(body_html, subtype="html")
+    return msg
+
+
 def parse_ts(v):
     if isinstance(v, datetime) or v is None:
         return v
@@ -130,33 +146,11 @@ def main() -> int:
         print(f"{len(parsed)} listings parsed")
         return 0
 
-    missing = [name for name, value in (("GMAIL_ADDRESS", config.GMAIL_ADDRESS),
-                                        ("GMAIL_APP_PASSWORD", config.GMAIL_APP_PASSWORD),
-                                        ("SUPABASE_SECRET_KEY", config.SUPABASE_SECRET_KEY)) if not value]
-    if missing:
-        write_job_summary([f"## ❌ Missing secret(s): {', '.join(missing)}",
-                           "Add them under Settings → Secrets and variables → Actions → Repository secrets."])
+    if not config.SUPABASE_SECRET_KEY:
+        write_job_summary(["## ❌ Missing secret: SUPABASE_SECRET_KEY",
+                           "Add it under Settings → Secrets and variables → Actions → Repository secrets."])
         return 1
 
-    resolver = RedirectResolver(config.MAX_REDIRECT_LOOKUPS)
-    n_emails = 0
-    try:
-        for msg in fetch_recent_emails(config.GMAIL_ADDRESS, config.GMAIL_APP_PASSWORD, config.LOOKBACK_DAYS):
-            n_emails += 1
-            parsed += parse_message(msg, resolver)
-    except imaplib.IMAP4.error as e:
-        write_job_summary([
-            "## ❌ Gmail login failed",
-            f"Gmail said: `{e}`",
-            f"- Check GMAIL_ADDRESS is exactly the bot address (it starts with `{config.GMAIL_ADDRESS[:3]}`).",
-            f"- GMAIL_APP_PASSWORD must be the 16-letter **app password**, not the normal Gmail password "
-            f"(the saved one is {len(config.GMAIL_APP_PASSWORD)} characters long without spaces).",
-            "- 2-Step Verification must be on for the bot Gmail, and the app password must be created after that.",
-        ])
-        return 1
-    parsed += read_manual_csv()
-
-    # 2) Merge with what's already in the database -----------------------------
     db = Supabase(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY)
     try:
         existing = {r["id"]: r for r in db.select_all("listings", order="id")}
@@ -168,6 +162,32 @@ def main() -> int:
             "- If the project was paused, open it in the Supabase dashboard and click Restore.",
         ])
         return 1
+
+    notes: list[str] = []
+    resolver = RedirectResolver(config.MAX_REDIRECT_LOOKUPS)
+
+    # Emails copied in by the Google Apps Script (the normal route)
+    raw = db.select_all("raw_emails", order="received_at", select="id,sender,subject,html,plain",
+                        filters={"processed": "is.false"})
+    for row in raw:
+        parsed += parse_message(raw_row_to_message(row), resolver)
+    n_emails = len(raw)
+
+    # Optional: read Gmail directly with an app password (only if one is set up)
+    imap_ok = False
+    if config.GMAIL_ADDRESS and config.GMAIL_APP_PASSWORD:
+        try:
+            for msg in fetch_recent_emails(config.GMAIL_ADDRESS, config.GMAIL_APP_PASSWORD, config.LOOKBACK_DAYS):
+                n_emails += 1
+                parsed += parse_message(msg, resolver)
+            imap_ok = True
+        except imaplib.IMAP4.error as e:
+            notes.append(f"- ⚠️ Direct Gmail login skipped (`{e}`). That's fine if the Apps Script is set up; "
+                         "delete the GMAIL_APP_PASSWORD secret to hide this message.")
+    parsed += read_manual_csv()
+    if not raw and not imap_ok:
+        notes.append("- No new emails waiting. If alerts have arrived in the bot Gmail, check the Apps Script "
+                     "(script.google.com → Executions).")
     for r in existing.values():
         r["last_seen"] = parse_ts(r.get("last_seen"))
         r["first_seen"] = parse_ts(r.get("first_seen"))
@@ -201,6 +221,11 @@ def main() -> int:
         payload.append(row)
     db.upsert("listings", payload)
 
+    # Mark the copied emails as done, and clear out old ones to keep the database small
+    db.mark_processed("raw_emails", [r["id"] for r in raw])
+    db.delete_where("raw_emails", {"processed": "is.true",
+                                   "created_at": f"lt.{(now - timedelta(days=30)).isoformat()}"})
+
     # 5) Report -------------------------------------------------------------------
     new_deals = sorted(
         (all_rows[i] for i in new_ids
@@ -214,6 +239,7 @@ def main() -> int:
         f"- Listings found in emails/CSV: {len(parsed)} ({len(new_ids)} new)",
         f"- Listings in database: {len(rows)} ({sum(r.get('deal_score') is not None for r in rows)} with a score)",
         f"- New suburbs located on the map: {len(geo.new_rows)}",
+        *notes,
         "",
         "### Top 10 deals right now",
         "| Deal | Price | Beds | Suburb | Region |",
@@ -224,7 +250,7 @@ def main() -> int:
     ]
     write_job_summary(lines)
 
-    if config.NOTIFY_EMAIL and new_deals:
+    if config.NOTIFY_EMAIL and new_deals and imap_ok:  # sending needs a working app password
         send_email(config.GMAIL_ADDRESS, config.GMAIL_APP_PASSWORD, config.NOTIFY_EMAIL,
                    f"{len(new_deals)} new property deal(s) found", deals_html(new_deals))
     return 0

@@ -107,3 +107,14 @@ def test_manual_csv(tmp_path):
 def test_merge_keeps_old_values_when_email_omits_them():
     merged = run.merge_into({"price": 1, "bedrooms": 3}, {"price": 2, "bedrooms": None})
     assert merged == {"price": 2, "bedrooms": 3}
+
+
+def test_raw_email_row_is_parsed_like_a_real_email():
+    msg = load("property24_alert.eml")
+    html_body = msg.get_body(preferencelist=("html",)).get_content()
+    row = {"id": "x", "sender": "Property24 <alerts@property24.com>", "subject": "New",
+           "html": html_body, "plain": "View in HTML"}
+    found = {r["id"] for r in parse_message(run.raw_row_to_message(row))}
+    assert {"p24:115000001", "p24:115000003"} <= found
+    html_only = run.raw_row_to_message({**row, "plain": ""})
+    assert {r["id"] for r in parse_message(html_only)} == found
