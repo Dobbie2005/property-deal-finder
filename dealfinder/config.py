@@ -4,15 +4,15 @@ import os
 
 # --- Supabase -----------------------------------------------------------------
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://oqctqrhxeuqlhopnmsmt.supabase.co")
-SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY", "")
+SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY", "").strip()
 
 # --- Gmail (the dedicated listings inbox) -------------------------------------
-GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
+GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "").strip()
+GMAIL_APP_PASSWORD = "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
 LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "3"))  # re-read the last N days each run
 
 # Optional: send a daily summary of new good deals to this address
-NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL", "")
+NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL", "").strip()
 NOTIFY_MIN_SCORE = float(os.environ.get("NOTIFY_MIN_SCORE", "10"))  # % below suburb median
 
 # Emails from these senders may contain tracking links that we follow (HEAD request only)

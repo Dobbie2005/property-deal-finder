@@ -10,6 +10,7 @@ import argparse
 import csv
 import email
 import hashlib
+import imaplib
 import html
 import os
 import sys
@@ -129,20 +130,44 @@ def main() -> int:
         print(f"{len(parsed)} listings parsed")
         return 0
 
-    if not (config.GMAIL_ADDRESS and config.GMAIL_APP_PASSWORD and config.SUPABASE_SECRET_KEY):
-        print("Missing GMAIL_ADDRESS, GMAIL_APP_PASSWORD or SUPABASE_SECRET_KEY", file=sys.stderr)
+    missing = [name for name, value in (("GMAIL_ADDRESS", config.GMAIL_ADDRESS),
+                                        ("GMAIL_APP_PASSWORD", config.GMAIL_APP_PASSWORD),
+                                        ("SUPABASE_SECRET_KEY", config.SUPABASE_SECRET_KEY)) if not value]
+    if missing:
+        write_job_summary([f"## ❌ Missing secret(s): {', '.join(missing)}",
+                           "Add them under Settings → Secrets and variables → Actions → Repository secrets."])
         return 1
 
     resolver = RedirectResolver(config.MAX_REDIRECT_LOOKUPS)
     n_emails = 0
-    for msg in fetch_recent_emails(config.GMAIL_ADDRESS, config.GMAIL_APP_PASSWORD, config.LOOKBACK_DAYS):
-        n_emails += 1
-        parsed += parse_message(msg, resolver)
+    try:
+        for msg in fetch_recent_emails(config.GMAIL_ADDRESS, config.GMAIL_APP_PASSWORD, config.LOOKBACK_DAYS):
+            n_emails += 1
+            parsed += parse_message(msg, resolver)
+    except imaplib.IMAP4.error as e:
+        write_job_summary([
+            "## ❌ Gmail login failed",
+            f"Gmail said: `{e}`",
+            f"- Check GMAIL_ADDRESS is exactly the bot address (it starts with `{config.GMAIL_ADDRESS[:3]}`).",
+            f"- GMAIL_APP_PASSWORD must be the 16-letter **app password**, not the normal Gmail password "
+            f"(the saved one is {len(config.GMAIL_APP_PASSWORD)} characters long without spaces).",
+            "- 2-Step Verification must be on for the bot Gmail, and the app password must be created after that.",
+        ])
+        return 1
     parsed += read_manual_csv()
 
     # 2) Merge with what's already in the database -----------------------------
     db = Supabase(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY)
-    existing = {r["id"]: r for r in db.select_all("listings", order="id")}
+    try:
+        existing = {r["id"]: r for r in db.select_all("listings", order="id")}
+    except Exception as e:  # noqa: BLE001
+        write_job_summary([
+            "## ❌ Could not reach the Supabase database",
+            f"Error: `{str(e)[:300]}`",
+            f"- SUPABASE_SECRET_KEY should start with `sb_secret_` (the saved one starts with `{config.SUPABASE_SECRET_KEY[:10]}`).",
+            "- If the project was paused, open it in the Supabase dashboard and click Restore.",
+        ])
+        return 1
     for r in existing.values():
         r["last_seen"] = parse_ts(r.get("last_seen"))
         r["first_seen"] = parse_ts(r.get("first_seen"))
