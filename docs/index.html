@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deal Finder</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d2320; --muted: #66706b; --line: #e3e1da;
+    --accent: #1f6f4a; --great: #1a9850; --good: #91cf60; --fair: #e8b33a; --high: #d73027; --none: #9aa19d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141816; --panel: #1c2120; --ink: #e8ebe9; --muted: #9aa49f; --line: #2c3331; --accent: #5fc08f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tabs button { border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
+  .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; color: var(--muted); }
+  .filters label { display: flex; gap: 6px; align-items: center; }
+  select, input[type=number] { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  input[type=number] { width: 120px; }
+  main { display: grid; grid-template-columns: 360px 1fr; flex: 1; min-height: 0; }
+  #list { overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); }
+  #map { height: 100%; }
+  .summary { padding: 10px 14px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 13px; }
+  .item { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 58px 1fr; gap: 10px; }
+  .item:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .badge { border-radius: 8px; color: #fff; font-weight: 650; text-align: center; padding: 6px 0; font-size: 13px; align-self: start; }
+  .badge small { display: block; font-weight: 400; font-size: 10px; opacity: .9; }
+  .price { font-weight: 650; }
+  .meta { color: var(--muted); font-size: 12.5px; }
+  .drop { color: var(--great); font-size: 12px; font-weight: 600; }
+  .empty { padding: 24px 16px; color: var(--muted); }
+  .legend { background: var(--panel); color: var(--ink); padding: 8px 10px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 12px; line-height: 1.7; }
+  .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+  .pin { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.45); }
+  .leaflet-popup-content { font-size: 13px; line-height: 1.5; }
+  .leaflet-popup-content a.open { display: inline-block; margin-top: 6px; font-weight: 600; color: var(--accent); }
+  .note { font-size: 11.5px; color: var(--muted); padding: 10px 14px; }
+  @media (max-width: 760px) {
+    body { height: auto; display: block; }
+    main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; }
+    #map { height: 55vh; order: -1; }
+    #list { border-right: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Deal Finder</h1>
+  <div class="tabs" id="tabs"></div>
+  <div class="filters">
+    <label>Deals <select id="minScore">
+      <option value="-999">all listings</option>
+      <option value="0">at or below market</option>
+      <option value="10" selected>10%+ below</option>
+      <option value="20">20%+ below</option>
+    </select></label>
+    <label>Max price <input id="maxPrice" type="number" step="50000" placeholder="any"></label>
+    <label>Beds <select id="minBeds"><option value="0">any</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+    <label>Type <select id="ptype"><option value="">any</option><option>house</option><option>townhouse</option><option>apartment</option><option>land</option><option>farm</option></select></label>
+    <label><input type="checkbox" id="dropsOnly"> price dropped</label>
+  </div>
+</header>
+<main>
+  <div id="list"><div class="empty">Loading listings…</div></div>
+  <div id="map"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script>
+// Publishable key: safe to share. The database only allows reading with it.
+const SUPABASE_URL = "https://oqctqrhxeuqlhopnmsmt.supabase.co";
+const SUPABASE_KEY = "sb_publishable_n3s6e7fY50SPVjm6eZgFeA_Lb0262BE";
+
+const REGIONS = {
+  all:         { label: "All areas",            center: [-28.6, 24.5],      zoom: 5 },
+  durbanville: { label: "Durbanville & surrounds", center: [-33.832, 18.647], zoom: 12 },
+  polokwane:   { label: "Polokwane",            center: [-23.9045, 29.4689], zoom: 12 },
+  tzaneen:     { label: "Tzaneen",              center: [-23.8332, 30.1635], zoom: 12 },
+};
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function colour(s) {
+  if (s == null) return css("--none");
+  if (s >= 15) return css("--great");
+  if (s >= 5) return css("--good");
+  if (s >= -5) return css("--fair");
+  return css("--high");
+}
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const rand = v => v ? "R " + Math.round(v).toLocaleString("en-ZA").replace(/,/g, " ") : "POA";
+const num = v => v == null ? null : +(+v).toFixed(1);
+
+let all = [], region = "all";
+try { region = localStorage.getItem("region") || "all"; } catch (e) {}
+
+const map = L.map("map", { zoomControl: true });
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+}).addTo(map);
+const cluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 40 });
+map.addLayer(cluster);
+
+const legend = L.control({ position: "bottomright" });
+legend.onAdd = () => {
+  const d = L.DomUtil.create("div", "legend");
+  d.innerHTML = [["--great","15%+ below similar"],["--good","5–15% below"],["--fair","about market"],["--high","above market"],["--none","not enough comps yet"]]
+    .map(([v, t]) => `<div><span class="dot" style="background:${css(v)}"></span>${t}</div>`).join("");
+  return d;
+};
+legend.addTo(map);
+
+function basisText(l) {
+  if (l.deal_score == null) return "Not enough similar listings in this suburb yet to score it.";
+  const dir = l.deal_score >= 0 ? `${Math.abs(l.deal_score).toFixed(0)}% below` : `${Math.abs(l.deal_score).toFixed(0)}% above`;
+  return l.score_basis === "price_per_m2"
+    ? `${dir} the median of ${rand(l.suburb_median)}/m² across ${l.comps_count} similar listings in ${esc(l.suburb)}.`
+    : `${dir} the median price of ${l.comps_count} other ${num(l.bedrooms)}-bed listings in ${esc(l.suburb)}.`;
+}
+
+function popup(l) {
+  const facts = [l.bedrooms && `${num(l.bedrooms)} bed`, l.bathrooms && `${num(l.bathrooms)} bath`,
+                 l.floor_m2 && `${num(l.floor_m2)} m²`, l.erf_m2 && `erf ${num(l.erf_m2)} m²`, l.property_type].filter(Boolean).join(" · ");
+  const drop = l.first_price && l.price && l.price < l.first_price
+    ? `<div class="drop">Dropped from ${rand(l.first_price)}</div>` : "";
+  return `<div><b>${esc(l.title || `${(l.property_type || "property").replace(/^./, c => c.toUpperCase())} in ${l.suburb}`)}</b>
+    <div class="price" style="font-size:15px">${rand(l.price)}</div>${drop}
+    <div class="meta">${esc(facts)}</div>
+    <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · first seen ${new Date(l.first_seen).toLocaleDateString("en-ZA")}</div>
+    <div style="margin-top:6px">${basisText(l)}</div>
+    <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open listing ↗</a></div>`;
+}
+
+function filtered() {
+  const minScore = +document.getElementById("minScore").value;
+  const maxPrice = +document.getElementById("maxPrice").value || Infinity;
+  const minBeds = +document.getElementById("minBeds").value;
+  const ptype = document.getElementById("ptype").value;
+  const drops = document.getElementById("dropsOnly").checked;
+  return all.filter(l =>
+    (region === "all" || l.region === region) &&
+    (minScore <= -999 || (l.deal_score != null && l.deal_score >= minScore)) &&
+    (!l.price || l.price <= maxPrice) &&
+    (!minBeds || (l.bedrooms || 0) >= minBeds) &&
+    (!ptype || l.property_type === ptype) &&
+    (!drops || (l.first_price && l.price < l.first_price))
+  ).sort((a, b) => (b.deal_score ?? -999) - (a.deal_score ?? -999));
+}
+
+function render() {
+  const rows = filtered();
+  cluster.clearLayers();
+  const markers = {};
+  for (const l of rows) {
+    if (l.lat == null) continue;
+    const icon = L.divIcon({ className: "", html: `<div class="pin" style="background:${colour(l.deal_score)}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
+    const m = L.marker([l.lat, l.lng], { icon }).bindPopup(popup(l), { maxWidth: 290 });
+    cluster.addLayer(m);
+    markers[l.id] = m;
+  }
+  const list = document.getElementById("list");
+  if (!all.length) {
+    list.innerHTML = `<div class="empty">No listings yet. They appear after the first daily run reads your alert emails.</div>`;
+    return;
+  }
+  const scored = rows.filter(l => l.deal_score != null).length;
+  list.innerHTML = `<div class="summary">${rows.length} listing${rows.length === 1 ? "" : "s"} shown · ${scored} scored · ${all.length} in total</div>` +
+    (rows.length ? rows.slice(0, 300).map(l => `
+      <div class="item" data-id="${esc(l.id)}">
+        <div class="badge" style="background:${colour(l.deal_score)}">${l.deal_score == null ? "–" : (l.deal_score > 0 ? "−" : "+") + Math.abs(l.deal_score).toFixed(0) + "%"}<small>${l.deal_score == null ? "no comps" : "vs area"}</small></div>
+        <div><div class="price">${rand(l.price)}</div>
+          ${l.first_price && l.price < l.first_price ? `<div class="drop">was ${rand(l.first_price)}</div>` : ""}
+          <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
+          <div class="meta">${[l.bedrooms && num(l.bedrooms) + " bed", l.floor_m2 && num(l.floor_m2) + " m²", l.property_type].filter(Boolean).join(" · ")}</div>
+        </div>
+      </div>`).join("") : `<div class="empty">Nothing matches these filters. Try “all listings”.</div>`) +
+    `<div class="note">Pins sit on the suburb centre, not the exact house. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected.</div>`;
+  list.querySelectorAll(".item").forEach(el => el.addEventListener("click", () => {
+    const m = markers[el.dataset.id];
+    if (m) cluster.zoomToShowLayer(m, () => m.openPopup());
+    else window.open(all.find(l => l.id === el.dataset.id).url, "_blank", "noopener");
+  }));
+}
+
+function setRegion(r, fly = true) {
+  region = r;
+  try { localStorage.setItem("region", r); } catch (e) {}
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.r === r));
+  const { center, zoom } = REGIONS[r];
+  fly ? map.flyTo(center, zoom, { duration: .8 }) : map.setView(center, zoom);
+  render();
+}
+
+document.getElementById("tabs").innerHTML = Object.entries(REGIONS)
+  .map(([k, v]) => `<button data-r="${k}">${v.label}</button>`).join("");
+document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => setRegion(b.dataset.r)));
+["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly"].forEach(id =>
+  document.getElementById(id).addEventListener("input", render));
+
+async function load() {
+  const rows = [];
+  for (let offset = 0; ; offset += 1000) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/listings?select=*&order=id&limit=1000&offset=${offset}`,
+      { headers: { apikey: SUPABASE_KEY } });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const batch = await res.json();
+    rows.push(...batch);
+    if (batch.length < 1000) break;
+  }
+  return rows;
+}
+
+if (!REGIONS[region]) region = "all";
+setRegion(region, false);
+load().then(rows => { all = rows; render(); })
+  .catch(err => {
+    document.getElementById("list").innerHTML =
+      `<div class="empty">Couldn't load listings (${esc(err.message)}). If the database was paused for inactivity, open Supabase and restore it.</div>`;
+  });
+</script>
+</body>
+</html>

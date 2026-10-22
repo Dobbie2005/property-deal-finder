@@ -1,0 +1,62 @@
+From: Property24 <alerts@property24.com>
+To: bot@example.com
+Subject: 3 new properties match your search
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="===============6042101331100193613=="
+
+--===============6042101331100193613==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+View in HTML
+
+--===============6042101331100193613==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<html><body><table>
+      <tr><td><h2>New listings matching your alert</h2></td></tr>
+    <tr><td style=3D"padding:10px">
+      <a href=3D"https://www.property24.com/for-sale/sonstraal-heights/durban=
+ville/western-cape/11014/115000001?utm_source=3Dalert"><img src=3D"https://ex=
+ample.com/x.jpg" alt=3D""></a>
+      <table><tr><td>
+        <a href=3D"https://www.property24.com/for-sale/sonstraal-heights/durb=
+anville/western-cape/11014/115000001?utm_source=3Dalert" style=3D"font-weight=
+:bold">3 Bedroom House in Sonstraal Heights</a><br>
+        <span style=3D"font-size:18px">R 2 450 000</span><br>
+        <span>3 Bedrooms</span> <span>2 Bathrooms</span>
+        <span>180 m=C2=B2</span> <span>Erf size 650 m=C2=B2</span>
+      </td></tr></table>
+    </td></tr>
+    <tr><td style=3D"padding:10px">
+      <a href=3D"https://click.property24.com/ls/click?upn=3Dabc%2F123"><img =
+src=3D"https://example.com/x.jpg" alt=3D""></a>
+      <table><tr><td>
+        <a href=3D"https://click.property24.com/ls/click?upn=3Dabc%2F123" sty=
+le=3D"font-weight:bold">2 Bedroom Apartment in Bellville</a><br>
+        <span style=3D"font-size:18px">R 1 150 000</span><br>
+        <span>2 Bedrooms</span> <span>1 Bathrooms</span>
+        <span>75 m=C2=B2</span>=20
+      </td></tr></table>
+    </td></tr>
+    <tr><td style=3D"padding:10px">
+      <a href=3D"https://www.property24.com/for-sale/bendor/polokwane/limpopo=
+/6450/115000003"><img src=3D"https://example.com/x.jpg" alt=3D""></a>
+      <table><tr><td>
+        <a href=3D"https://www.property24.com/for-sale/bendor/polokwane/limpo=
+po/6450/115000003" style=3D"font-weight:bold">4 Bedroom House in Bendor</a><b=
+r>
+        <span style=3D"font-size:18px">Reduced from R 1 950 000 to R 1 795 00=
+0</span><br>
+        <span>4 Bedrooms</span> <span>3 Bathrooms</span>
+        <span>250 m=C2=B2</span> <span>Erf size 1 100 m=C2=B2</span>
+      </td></tr></table>
+    </td></tr>
+      <tr><td><a href=3D"https://www.property24.com/unsubscribe?id=3D1">Unsub=
+scribe</a> Home loans from R 5 000 pm</td></tr>
+    </table></body></html>
+
+--===============6042101331100193613==--
