@@ -4,11 +4,17 @@ on:
   schedule:
     - cron: "17 3 * * *"   # every day at 05:17 South African time (03:17 UTC)
   workflow_dispatch:        # adds a "Run workflow" button on the Actions tab
+  repository_dispatch:      # started by the Gmail Apps Script when new alert emails arrive
+    types: [new-emails]
+
+concurrency:                # never run two checks at once; queue the next one instead
+  group: listing-check
+  cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

@@ -23,8 +23,11 @@ Everything runs on free tiers. The only paid option is GitHub Pages for a privat
 1. Create a new Gmail account (ours is the bot inbox).
 2. While signed in as that account, go to <https://script.google.com> → **New project**.
 3. Delete the sample code, paste in `apps_script/Code.gs`, and put the ingest token in `INGEST_TOKEN`. The token is in Supabase table `private.settings`.
-4. Save, choose **setup** in the function dropdown, and click **Run**. Allow access when Google asks.
-   It then copies new emails into Supabase every 4 hours. No app password or 2-Step Verification is needed.
+4. Optional, recommended: create a GitHub **fine-grained token** for this repo only, with *Contents: Read and write*, and put it in `GITHUB_TOKEN`.
+5. Save, choose **setup** in the function dropdown, and click **Run**. Allow access when Google asks.
+   It then copies new emails into Supabase **every 15 minutes**. When new emails arrive it starts the GitHub job straight away, so the map updates within minutes.
+   Without the GitHub token, emails are still copied, but the map only updates at the daily 05:17 run.
+   No app password or 2-Step Verification is needed.
 
 ### 2. Set up listing alerts, sent to the bot Gmail
 On **Property24** and **Private Property**, sign up with the bot Gmail, then save searches with email alerts turned on (daily or instant):
