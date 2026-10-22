@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <style>
   :root {
     --bg: #f6f5f1; --panel: #ffffff; --ink: #1d2320; --muted: #66706b; --line: #e3e1da;
@@ -78,6 +79,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
 <script>
 // Publishable key: safe to share. The database only allows reading with it.
 const SUPABASE_URL = "https://oqctqrhxeuqlhopnmsmt.supabase.co";
@@ -105,21 +108,30 @@ const num = v => v == null ? null : +(+v).toFixed(1);
 let all = [], region = "all";
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
-const map = L.map("map", { zoomControl: true });
-const osmCredit = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-const baseMaps = {
-  "Streets": L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-    maxZoom: 20, subdomains: "abcd", attribution: `${osmCredit} &copy; <a href="https://carto.com/attributions">CARTO</a>`
-  }),
-  "Satellite": L.layerGroup([
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-      maxZoom: 19, attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics"
-    }),
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png", {
-      maxZoom: 20, subdomains: "abcd", attribution: `${osmCredit} &copy; CARTO`
-    }),
-  ]),
-};
+const map = L.map("map", { zoomControl: true, maxZoom: 19 });
+// Map backgrounds: all free, no API key, and they work when the page is opened as a local file.
+const esri = (service, attribution) => L.tileLayer(
+  `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`,
+  { maxZoom: 19, attribution });
+const esriStreets = esri("World_Street_Map", "Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors");
+const satellite = L.layerGroup([
+  esri("World_Imagery", "Imagery &copy; Esri, Maxar, Earthstar Geographics"),
+  esri("Reference/World_Transportation", ""),
+  esri("Reference/World_Boundaries_and_Places", ""),
+]);
+function webglAvailable() {
+  try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); }
+  catch (e) { return false; }
+}
+const openFreeMap = (window.L.maplibreGL && webglAvailable())
+  ? L.maplibreGL({
+      style: "https://tiles.openfreemap.org/styles/liberty",
+      attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+    })
+  : null;
+const baseMaps = openFreeMap
+  ? { "Streets": openFreeMap, "Streets (backup)": esriStreets, "Satellite": satellite }
+  : { "Streets": esriStreets, "Satellite": satellite };
 let baseName = "Streets";
 try { baseName = localStorage.getItem("baseMap") || "Streets"; } catch (e) {}
 (baseMaps[baseName] || baseMaps.Streets).addTo(map);
