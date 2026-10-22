@@ -107,6 +107,12 @@ class Supabase:
             if r.status_code >= 300:
                 raise RuntimeError(f"Supabase update of {table} failed ({r.status_code}): {r.text[:500]}")
 
+    def rpc(self, fn: str, args: Optional[dict] = None):
+        r = requests.post(f"{self.base}/rpc/{fn}", headers=self.headers, json=args or {}, timeout=60)
+        if r.status_code >= 300:
+            raise RuntimeError(f"Supabase function {fn} failed ({r.status_code}): {r.text[:300]}")
+        return r.json()
+
     def delete_where(self, table: str, filters: dict) -> None:
         r = requests.delete(f"{self.base}/{table}", headers={**self.headers, "Prefer": "return=minimal"},
                             params=filters, timeout=60)

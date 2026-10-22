@@ -33,6 +33,11 @@ COMPS_WINDOW_DAYS = 180  # only compare against listings seen in the last ~6 mon
 MIN_COMPS = 3            # need at least this many similar listings to give a score
 MIN_PRICE = 50_000       # ignore smaller "prices" (levies, rates, rentals)
 
+# --- Keeping the free database small (500 MB limit) -----------------------------
+KEEP_LISTINGS_DAYS = 365   # listings not seen in an alert for a year are deleted
+KEEP_EMAILS_DAYS = 7       # copied emails are deleted a week after they've been read
+DB_WARN_MB = 400           # the run summary warns when the database gets this big
+
 # --- Geocoding (free OpenStreetMap Nominatim; max 1 request per second) ---------
 NOMINATIM_EMAIL = os.environ.get("NOMINATIM_EMAIL", "")
 MAX_GEOCODES_PER_RUN = 60

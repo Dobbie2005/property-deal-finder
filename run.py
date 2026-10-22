@@ -203,6 +203,14 @@ def main() -> int:
             all_rows[rec["id"]] = rec
             new_ids.add(rec["id"])
 
+    # Forget listings that haven't appeared in any alert for a long time
+    keep_cutoff = now - timedelta(days=config.KEEP_LISTINGS_DAYS)
+    stale = [i for i, r in all_rows.items() if r.get("last_seen") and r["last_seen"] < keep_cutoff]
+    for i in stale:
+        del all_rows[i]
+    if stale:
+        db.delete_where("listings", {"last_seen": f"lt.{keep_cutoff.isoformat()}"})
+
     # 3) Map coordinates + region ------------------------------------------------
     geo = Geocoder(db)
     for r in all_rows.values():
@@ -224,7 +232,11 @@ def main() -> int:
     # Mark the copied emails as done, and clear out old ones to keep the database small
     db.mark_processed("raw_emails", [r["id"] for r in raw])
     db.delete_where("raw_emails", {"processed": "is.true",
-                                   "created_at": f"lt.{(now - timedelta(days=30)).isoformat()}"})
+                                   "created_at": f"lt.{(now - timedelta(days=config.KEEP_EMAILS_DAYS)).isoformat()}"})
+    try:
+        size_mb = float(db.rpc("db_size_mb"))
+    except Exception:  # noqa: BLE001  (the size report is nice-to-have)
+        size_mb = None
 
     # 5) Report -------------------------------------------------------------------
     new_deals = sorted(
@@ -239,6 +251,10 @@ def main() -> int:
         f"- Listings found in emails/CSV: {len(parsed)} ({len(new_ids)} new)",
         f"- Listings in database: {len(rows)} ({sum(r.get('deal_score') is not None for r in rows)} with a score)",
         f"- New suburbs located on the map: {len(geo.new_rows)}",
+        (f"- Database size: {size_mb:.0f} MB of the free 500 MB"
+         + (" ⚠️ getting full: lower KEEP_LISTINGS_DAYS in dealfinder/config.py" if size_mb >= config.DB_WARN_MB else "")
+         if size_mb is not None else "- Database size: unknown"),
+        f"- Old listings removed: {len(stale)}",
         *notes,
         "",
         "### Top 10 deals right now",
