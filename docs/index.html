@@ -106,9 +106,25 @@ let all = [], region = "all";
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
 const map = L.map("map", { zoomControl: true });
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-}).addTo(map);
+const osmCredit = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const baseMaps = {
+  "Streets": L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    maxZoom: 20, subdomains: "abcd", attribution: `${osmCredit} &copy; <a href="https://carto.com/attributions">CARTO</a>`
+  }),
+  "Satellite": L.layerGroup([
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics"
+    }),
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png", {
+      maxZoom: 20, subdomains: "abcd", attribution: `${osmCredit} &copy; CARTO`
+    }),
+  ]),
+};
+let baseName = "Streets";
+try { baseName = localStorage.getItem("baseMap") || "Streets"; } catch (e) {}
+(baseMaps[baseName] || baseMaps.Streets).addTo(map);
+L.control.layers(baseMaps, null, { position: "topright" }).addTo(map);
+map.on("baselayerchange", e => { try { localStorage.setItem("baseMap", e.name); } catch (err) {} });
 const cluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 40 });
 map.addLayer(cluster);
 
