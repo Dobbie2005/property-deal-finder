@@ -166,13 +166,22 @@ class Geocoder:
         self.new_rows.append(row)
         return lat, lng
 
+    MAX_KM_FROM_TOWN = 15  # a suburb further than this from its town is a wrong match (e.g. another "Normandie")
+
     def locate(self, rec: dict) -> tuple[Optional[float], Optional[float]]:
-        lat, lng = self._get(rec.get("suburb"), rec.get("city"), rec.get("province"))
-        if lat is None and rec.get("city"):  # the suburb may be filed under a neighbouring town
-            lat, lng = self._get(rec.get("suburb"), None, rec.get("province"))
-        if lat is None:  # fall back to the town centre
-            lat, lng = self._get(None, rec.get("city"), rec.get("province"))
-        return lat, lng
+        from .scoring import haversine_km
+        town = self._get(None, rec.get("city"), rec.get("province")) if rec.get("city") else (None, None)
+
+        def near_town(pt):
+            return pt[0] is not None and (town[0] is None or
+                                          haversine_km(pt[0], pt[1], town[0], town[1]) <= self.MAX_KM_FROM_TOWN)
+
+        pt = self._get(rec.get("suburb"), rec.get("city"), rec.get("province"))
+        if not near_town(pt) and rec.get("city"):  # the suburb may be filed under a neighbouring town
+            pt = self._get(rec.get("suburb"), None, rec.get("province"))
+        if not near_town(pt):  # fall back to the town centre
+            pt = town
+        return pt
 
     def save(self) -> None:
         if self.new_rows:

@@ -149,3 +149,17 @@ def test_real_property24_on_show_alert_with_several_cards():
 def test_suburb_named_after_another_town_uses_that_town():
     found = {r["id"]: r for r in parse_message(load("p24_real_onshow.eml"))}
     assert (found["p24:116749541"]["city"], found["p24:116749541"]["province"]) == ("Polokwane", "Limpopo")
+
+
+def test_geocoder_rejects_a_same_named_suburb_far_from_its_town():
+    import dealfinder.services as svc
+
+    class NoDB:
+        def select_all(self, *a, **k): return []
+    answers = {"Brackenfell, Western Cape, South Africa": (-33.883, 18.70),
+               "Normandie, Western Cape, South Africa": (-34.033, 18.788),   # the wrong Normandie
+               "Kleinbron, Western Cape, South Africa": (-33.852, 18.687)}   # the right Kleinbron
+    geo = svc.Geocoder(NoDB())
+    geo._lookup = lambda q: answers.get(q, (None, None))
+    assert geo.locate({"suburb": "Normandie", "city": "Brackenfell", "province": "Western Cape"}) == (-33.883, 18.70)
+    assert geo.locate({"suburb": "Kleinbron", "city": "Brackenfell", "province": "Western Cape"}) == (-33.852, 18.687)
