@@ -54,7 +54,8 @@
   .leaflet-popup-content { font-size: 13px; line-height: 1.5; }
   .leaflet-popup-content a.open { display: inline-block; margin-top: 6px; font-weight: 600; color: var(--accent); }
   .note { font-size: 11.5px; color: var(--muted); padding: 10px 14px; }
-  .themebtn { margin-left: auto; border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
+  .filters { order: 3; flex-basis: 100%; }
+  .themebtn { order: 2; margin-left: auto; border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
   .cluster { border-radius: 50%; background: var(--c); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px;
              border: 2px solid #fff; text-shadow: 0 1px 2px rgba(0,0,0,.55);
              box-shadow: 0 0 0 5px color-mix(in srgb, var(--c) 35%, transparent), 0 1px 4px rgba(0,0,0,.4); }
@@ -85,6 +86,20 @@
     <label>Max price <input id="maxPrice" type="number" step="50000" placeholder="any"></label>
     <label>Beds <select id="minBeds"><option value="0">any</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
     <label>Type <select id="ptype"><option value="">any</option><option>house</option><option>townhouse</option><option>apartment</option><option>land</option><option>farm</option></select></label>
+    <label title="Based on when a listing last appeared in an alert (new, price drop or show day)">Listed
+      <select id="maxAge">
+        <option value="7">last 7 days</option>
+        <option value="30">last 30 days</option>
+        <option value="90" selected>last 90 days</option>
+        <option value="0">any time</option>
+      </select></label>
+    <label>Sort
+      <select id="sortBy">
+        <option value="deal">best deal first</option>
+        <option value="price_asc">price: low to high</option>
+        <option value="price_desc">price: high to low</option>
+        <option value="newest">newest first</option>
+      </select></label>
     <label><input type="checkbox" id="dropsOnly"> price dropped</label>
     <label title="When a suburb has too few similar listings, also compare with suburbs within 3 km">Compare with
       <select id="compare"><option value="suburb">same suburb</option><option value="nearby">+ nearby suburbs</option></select></label>
@@ -125,6 +140,11 @@ try { compareMode = localStorage.getItem("compare") || "suburb"; } catch (e) {}
 const S = l => compareMode === "nearby"
   ? { score: l.wide_score, median: l.wide_median, comps: l.wide_comps, basis: l.wide_basis }
   : { score: l.deal_score, median: l.suburb_median, comps: l.comps_count, basis: l.score_basis };
+
+// Age of a listing
+const DAY = 864e5;
+const daysSince = d => d ? Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / DAY)) : null;
+const ageText = d => { const n = daysSince(d); return n == null ? "" : n === 0 ? "today" : n === 1 ? "1 day ago" : `${n} days ago`; };
 
 // How much to trust a score, by how many similar listings it was based on
 const confidence = n => n >= 10 ? "solid" : n >= 6 ? "fair" : "early estimate";
@@ -234,7 +254,8 @@ function popup(l) {
   return `<div>${photo(l, "popup-photo")}<b>${esc(l.title || `${(l.property_type || "property").replace(/^./, c => c.toUpperCase())} in ${l.suburb}`)}</b>
     <div class="price" style="font-size:15px">${rand(l.price)}</div>${drop}
     <div class="meta">${esc(facts)}</div>
-    <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · first seen ${new Date(l.first_seen).toLocaleDateString("en-ZA")}</div>
+    <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · listed ${ageText(l.first_seen)}${
+      daysSince(l.last_seen) < daysSince(l.first_seen) ? ` · last in an alert ${ageText(l.last_seen)}` : ""}</div>
     <div style="margin-top:6px">${basisText(l)}</div>
     <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open listing ↗</a>
     ${l.trends_url ? `&nbsp;·&nbsp;<a class="open" href="${esc(l.trends_url)}" target="_blank" rel="noopener" title="Average asking and sold prices for ${esc(l.suburb)} on Property24">Area sold prices ↗</a>` : ""}</div>`;
@@ -246,14 +267,24 @@ function filtered() {
   const minBeds = +document.getElementById("minBeds").value;
   const ptype = document.getElementById("ptype").value;
   const drops = document.getElementById("dropsOnly").checked;
+  const maxAge = +document.getElementById("maxAge").value;
+  const sortBy = document.getElementById("sortBy").value;
+  const price = l => l.price || null;  // listings without a price ("POA") always go last
+  const sorters = {
+    deal: (a, b) => (S(b).score ?? -999) - (S(a).score ?? -999),
+    price_asc: (a, b) => (price(a) ?? Infinity) - (price(b) ?? Infinity),
+    price_desc: (a, b) => (price(b) ?? -Infinity) - (price(a) ?? -Infinity),
+    newest: (a, b) => new Date(b.first_seen) - new Date(a.first_seen),
+  };
   return all.filter(l =>
+    (!maxAge || daysSince(l.last_seen || l.first_seen) <= maxAge) &&
     (region === "all" || l.region === region) &&
     (minScore <= -999 || (S(l).score != null && S(l).score >= minScore)) &&
     (!l.price || l.price <= maxPrice) &&
     (!minBeds || (l.bedrooms || 0) >= minBeds) &&
     (!ptype || l.property_type === ptype) &&
     (!drops || (l.first_price && l.price < l.first_price))
-  ).sort((a, b) => (S(b).score ?? -999) - (S(a).score ?? -999));
+  ).sort(sorters[sortBy] || sorters.deal);
 }
 
 function render() {
@@ -281,9 +312,10 @@ function render() {
           ${l.first_price && l.price < l.first_price ? `<div class="drop">was ${rand(l.first_price)}</div>` : ""}
           <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
           <div class="meta">${[l.bedrooms && num(l.bedrooms) + " bed", l.floor_m2 && num(l.floor_m2) + " m²", l.property_type].filter(Boolean).join(" · ")}</div>
+          <div class="meta">listed ${ageText(l.first_seen)}</div>
         </div>
         <div class="badge" style="background:${colour(S(l).score)}">${S(l).score == null ? "–" : (S(l).score > 0 ? "−" : "+") + Math.abs(S(l).score).toFixed(0) + "%"}<small>${S(l).score == null ? "no comps" : S(l).comps + ((S(l).basis || "").startsWith("nearby_") ? " near" : " comps")}</small></div>
-      </div>`).join("") : `<div class="empty">Nothing matches these filters. Try “all listings”.</div>`) +
+      </div>`).join("") : `<div class="empty">Nothing matches these filters. Try “all listings” or “Listed: any time”.</div>`) +
     `<div class="note">Pins sit on the suburb centre, not the exact house. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected. For what homes actually sold for, use “Area sold prices” in a listing’s popup.</div>`;
   list.querySelectorAll(".item").forEach(el => el.addEventListener("click", () => {
     const m = markers[el.dataset.id];
@@ -304,7 +336,12 @@ function setRegion(r, fly = true) {
 document.getElementById("tabs").innerHTML = Object.entries(REGIONS)
   .map(([k, v]) => `<button data-r="${k}">${v.label}</button>`).join("");
 document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => setRegion(b.dataset.r)));
-["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly"].forEach(id =>
+for (const id of ["maxAge", "sortBy"]) {  // remember these between visits
+  const el = document.getElementById(id);
+  try { const saved = localStorage.getItem(id); if (saved && [...el.options].some(o => o.value === saved)) el.value = saved; } catch (e) {}
+  el.addEventListener("input", () => { try { localStorage.setItem(id, el.value); } catch (e) {} });
+}
+["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly", "maxAge", "sortBy"].forEach(id =>
   document.getElementById(id).addEventListener("input", render));
 const compareSel = document.getElementById("compare");
 compareSel.value = compareMode === "nearby" ? "nearby" : "suburb";
