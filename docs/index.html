@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Deal Finder</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
@@ -64,11 +64,45 @@
   .leaflet-control-attribution { background: var(--panel) !important; color: var(--ink) !important; }
   .leaflet-bar a { border-bottom-color: var(--line) !important; }
   .leaflet-control-attribution a { color: var(--accent) !important; }
+  .chipbtn { border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
+  .filtersbtn, .viewswitch { display: none; }
+  .legend details summary { cursor: pointer; font-weight: 600; list-style: none; }
+  .legend details summary::-webkit-details-marker { display: none; }
+  .legend details[open] summary { margin-bottom: 4px; }
+
+  /* ---------- Phones ---------- */
   @media (max-width: 760px) {
-    body { height: auto; display: block; }
-    main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; }
-    #map { height: 55vh; order: -1; }
-    #list { border-right: 0; }
+    body { height: 100dvh; }
+    header { padding: 10px 12px 8px; gap: 8px; }
+    h1 { font-size: 16px; }
+    .filtersbtn { display: inline-flex; gap: 6px; order: 2; margin-left: auto; }
+    .themebtn { order: 3; margin-left: 0; padding: 6px 10px; }
+    .themebtn .lbl { display: none; }
+    .tabs { order: 4; flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tabs button { white-space: nowrap; flex: 0 0 auto; }
+    .filters { display: none; order: 5; }
+    body.filters-open .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; padding-top: 4px; }
+    .filters label { flex-direction: column; align-items: stretch; gap: 3px; font-size: 12px; }
+    .filters label:has(input[type=checkbox]) { flex-direction: row; align-items: center; font-size: 14px; }
+    .filters select, .filters input[type=number] { width: 100%; font-size: 16px; padding: 7px 8px; } /* 16px stops iPhone zooming in */
+    main { display: block; position: relative; }
+    #map, #list { position: absolute; inset: 0; height: auto; }
+    #list { visibility: hidden; border-right: 0; padding-bottom: 80px; }
+    body.view-list #list { visibility: visible; }
+    body.view-list #map { visibility: hidden; }
+    .viewswitch { display: flex; position: fixed; z-index: 1000; left: 50%; transform: translateX(-50%);
+                  bottom: calc(16px + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line);
+                  border-radius: 999px; padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+    .viewswitch button { border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; padding: 9px 20px; border-radius: 999px; cursor: pointer; }
+    .viewswitch button.on { background: var(--accent); color: #fff; }
+    .legend { font-size: 11.5px; padding: 6px 9px; margin-bottom: 76px !important; }
+    .leaflet-bottom.leaflet-left .leaflet-control-attribution { display: none; }
+    .item { grid-template-columns: 84px 1fr 52px; padding: 10px 12px; }
+    .leaflet-control-zoom { display: none; }  /* pinch to zoom on phones */
+    .popup-photo { height: 110px; }
+    .leaflet-popup-content { margin: 12px 14px; }
+    .thumb { width: 84px; height: 60px; }
   }
 </style>
 </head>
@@ -104,12 +138,16 @@
     <label title="When a suburb has too few similar listings, also compare with suburbs within 3 km">Compare with
       <select id="compare"><option value="suburb">same suburb</option><option value="nearby">+ nearby suburbs</option></select></label>
   </div>
-  <button class="themebtn" id="themeBtn" title="Switch between automatic, light and dark">Theme: Auto</button>
+  <button class="chipbtn filtersbtn" id="filtersBtn" aria-expanded="false">Filters</button>
+  <button class="themebtn" id="themeBtn" title="Switch between automatic, light and dark"><span class="lbl">Theme: </span>Auto</button>
 </header>
 <main>
   <div id="list"><div class="empty">Loading listings…</div></div>
   <div id="map"></div>
 </main>
+<nav class="viewswitch" aria-label="Show map or list">
+  <button id="viewMap" class="on">Map</button><button id="viewList">List</button>
+</nav>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
@@ -141,6 +179,8 @@ const S = l => compareMode === "nearby"
   ? { score: l.wide_score, median: l.wide_median, comps: l.wide_comps, basis: l.wide_basis }
   : { score: l.deal_score, median: l.suburb_median, comps: l.comps_count, basis: l.score_basis };
 
+const isPhone = () => window.matchMedia("(max-width: 760px)").matches;
+
 // Age of a listing
 const DAY = 864e5;
 const daysSince = d => d ? Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / DAY)) : null;
@@ -158,8 +198,8 @@ const isDark = () => theme === "dark" || (theme === "auto" && darkQuery.matches)
 function applyTheme() {
   if (theme === "auto") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
-  document.getElementById("themeBtn").textContent =
-    "Theme: " + { auto: "Auto", light: "Light", dark: "Dark" }[theme];
+  document.getElementById("themeBtn").innerHTML =
+    '<span class="lbl">Theme: </span>' + { auto: "Auto", light: "Light", dark: "Dark" }[theme];
   const gl = openFreeMap && openFreeMap.getMaplibreMap && openFreeMap.getMaplibreMap();
   if (gl && gl._dfStyle !== streetStyle()) { gl._dfStyle = streetStyle(); gl.setStyle(streetStyle()); }
 }
@@ -220,9 +260,10 @@ map.addLayer(cluster);
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = () => {
   const d = L.DomUtil.create("div", "legend");
-  d.innerHTML = [["--great","15%+ below similar"],["--good","5–15% below"],["--fair","about market"],["--high","above market"],["--none","not enough comps yet"]]
+  d.innerHTML = `<details ${isPhone() ? "" : "open"}><summary>Key</summary>` + [["--great","15%+ below similar"],["--good","5–15% below"],["--fair","about market"],["--high","above market"],["--none","not enough comps yet"]]
     .map(([v, t]) => `<div><span class="dot" style="background:var(${v})"></span>${t}</div>`).join("")
-    + `<div style="margin-top:4px;color:var(--muted)">Bubbles show how many listings;<br>colour = best deal inside</div>`;
+    + `<div style="margin-top:4px;color:var(--muted)">Bubbles show how many listings;<br>colour = best deal inside</div></details>`;
+  L.DomEvent.disableClickPropagation(d);
   return d;
 };
 legend.addTo(map);
@@ -294,7 +335,7 @@ function render() {
   for (const l of rows) {
     if (l.lat == null) continue;
     const icon = L.divIcon({ className: "", html: `<div class="pin" style="background:${colour(S(l).score)}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
-    const m = L.marker([l.lat, l.lng], { icon, score: S(l).score }).bindPopup(popup(l), { maxWidth: 290 });
+    const m = L.marker([l.lat, l.lng], { icon, score: S(l).score }).bindPopup(popup(l), { maxWidth: 290, autoPanPaddingTopLeft: [10, 70], autoPanPaddingBottomRight: [10, 90] });
     cluster.addLayer(m);
     markers[l.id] = m;
   }
@@ -304,6 +345,12 @@ function render() {
     return;
   }
   const scored = rows.filter(l => S(l).score != null).length;
+  document.getElementById("viewList").textContent = `List (${rows.length})`;
+  const active = [+document.getElementById("minScore").value !== -999, !!document.getElementById("maxPrice").value,
+    document.getElementById("minBeds").value !== "0", !!document.getElementById("ptype").value,
+    document.getElementById("maxAge").value !== "90", document.getElementById("dropsOnly").checked, compareMode !== "suburb"]
+    .filter(Boolean).length;
+  document.getElementById("filtersBtn").textContent = active ? `Filters (${active})` : "Filters";
   list.innerHTML = `<div class="summary">${rows.length} listing${rows.length === 1 ? "" : "s"} shown · ${scored} scored · ${all.length} in total</div>` +
     (rows.length ? rows.slice(0, 300).map(l => `
       <div class="item" data-id="${esc(l.id)}">
@@ -319,6 +366,7 @@ function render() {
     `<div class="note">Pins sit on the suburb centre, not the exact house. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected. For what homes actually sold for, use “Area sold prices” in a listing’s popup.</div>`;
   list.querySelectorAll(".item").forEach(el => el.addEventListener("click", () => {
     const m = markers[el.dataset.id];
+    if (m && document.body.classList.contains("view-list")) setView("map");
     if (m) cluster.zoomToShowLayer(m, () => m.openPopup());
     else window.open(all.find(l => l.id === el.dataset.id).url, "_blank", "noopener");
   }));
@@ -364,6 +412,19 @@ async function load() {
   return rows;
 }
 
+function setView(v) {
+  document.body.classList.toggle("view-list", v === "list");
+  document.getElementById("viewMap").classList.toggle("on", v === "map");
+  document.getElementById("viewList").classList.toggle("on", v === "list");
+  if (v === "map") setTimeout(() => map.invalidateSize(), 50);
+}
+document.getElementById("viewMap").addEventListener("click", () => setView("map"));
+document.getElementById("viewList").addEventListener("click", () => setView("list"));
+document.getElementById("filtersBtn").addEventListener("click", () => {
+  const open = document.body.classList.toggle("filters-open");
+  document.getElementById("filtersBtn").setAttribute("aria-expanded", open);
+  setTimeout(() => map.invalidateSize(), 50);
+});
 document.getElementById("themeBtn").addEventListener("click", () => {
   theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
   try { localStorage.setItem("theme", theme); } catch (e) {}
