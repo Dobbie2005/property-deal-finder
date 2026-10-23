@@ -173,3 +173,9 @@ def test_flags_listing_looking_emails_that_could_not_be_read():
                                              "subject": "Property24 Account Activation"})
     assert not run.looks_like_listing_email({"sender": "Google <no-reply@accounts.google.com>",
                                              "subject": "Security alert", "plain": "hi"})
+
+
+def test_property24_alert_listing_photos():
+    found = {r["id"]: r for r in parse_message(load("p24_real_onshow.eml"))}
+    assert found["p24:117703912"]["image_url"] == "https://images.prop24.com/1177039120/Crop318x212"
+    assert all(r["image_url"] for r in found.values())

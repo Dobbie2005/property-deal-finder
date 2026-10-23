@@ -36,9 +36,13 @@
   #list { overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); }
   #map { height: 100%; }
   .summary { padding: 10px 14px; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 13px; }
-  .item { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 58px 1fr; gap: 10px; }
+  .item { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 92px 1fr 54px; gap: 10px; align-items: start; }
+  .thumb { width: 92px; height: 62px; border-radius: 8px; object-fit: cover; display: block; background: var(--line); }
+  .thumb.none { display: grid; place-items: center; color: var(--muted); font-size: 11px; }
+  .popup-photo { display: block; width: 100%; height: 150px; object-fit: cover; border-radius: 8px; margin-bottom: 8px; background: var(--line); }
   .item:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
   .badge { border-radius: 8px; color: #fff; font-weight: 650; text-align: center; padding: 6px 0; font-size: 13px; align-self: start; }
+  .badge small { white-space: nowrap; }
   .badge small { display: block; font-weight: 400; font-size: 10px; opacity: .9; }
   .price { font-weight: 650; }
   .meta { color: var(--muted); font-size: 12.5px; }
@@ -73,9 +77,9 @@
   <div class="tabs" id="tabs"></div>
   <div class="filters">
     <label>Deals <select id="minScore">
-      <option value="-999">all listings</option>
+      <option value="-999" selected>all listings</option>
       <option value="0">at or below market</option>
-      <option value="10" selected>10%+ below</option>
+      <option value="10">10%+ below</option>
       <option value="20">20%+ below</option>
     </select></label>
     <label>Max price <input id="maxPrice" type="number" step="50000" placeholder="any"></label>
@@ -203,12 +207,16 @@ function basisText(l) {
   return `${how} <span class="meta">(${confidence(l.comps_count)})</span>`;
 }
 
+const photo = (l, cls) => l.image_url
+  ? `<img class="${cls}" src="${esc(l.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">`
+  : (cls === "thumb" ? `<div class="thumb none">no photo</div>` : "");
+
 function popup(l) {
   const facts = [l.bedrooms && `${num(l.bedrooms)} bed`, l.bathrooms && `${num(l.bathrooms)} bath`,
                  l.floor_m2 && `${num(l.floor_m2)} m²`, l.erf_m2 && `erf ${num(l.erf_m2)} m²`, l.property_type].filter(Boolean).join(" · ");
   const drop = l.first_price && l.price && l.price < l.first_price
     ? `<div class="drop">Dropped from ${rand(l.first_price)}</div>` : "";
-  return `<div><b>${esc(l.title || `${(l.property_type || "property").replace(/^./, c => c.toUpperCase())} in ${l.suburb}`)}</b>
+  return `<div>${photo(l, "popup-photo")}<b>${esc(l.title || `${(l.property_type || "property").replace(/^./, c => c.toUpperCase())} in ${l.suburb}`)}</b>
     <div class="price" style="font-size:15px">${rand(l.price)}</div>${drop}
     <div class="meta">${esc(facts)}</div>
     <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · first seen ${new Date(l.first_seen).toLocaleDateString("en-ZA")}</div>
@@ -252,12 +260,13 @@ function render() {
   list.innerHTML = `<div class="summary">${rows.length} listing${rows.length === 1 ? "" : "s"} shown · ${scored} scored · ${all.length} in total</div>` +
     (rows.length ? rows.slice(0, 300).map(l => `
       <div class="item" data-id="${esc(l.id)}">
-        <div class="badge" style="background:${colour(l.deal_score)}">${l.deal_score == null ? "–" : (l.deal_score > 0 ? "−" : "+") + Math.abs(l.deal_score).toFixed(0) + "%"}<small>${l.deal_score == null ? "no comps" : l.comps_count + " comps"}</small></div>
+        ${photo(l, "thumb")}
         <div><div class="price">${rand(l.price)}</div>
           ${l.first_price && l.price < l.first_price ? `<div class="drop">was ${rand(l.first_price)}</div>` : ""}
           <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
           <div class="meta">${[l.bedrooms && num(l.bedrooms) + " bed", l.floor_m2 && num(l.floor_m2) + " m²", l.property_type].filter(Boolean).join(" · ")}</div>
         </div>
+        <div class="badge" style="background:${colour(l.deal_score)}">${l.deal_score == null ? "–" : (l.deal_score > 0 ? "−" : "+") + Math.abs(l.deal_score).toFixed(0) + "%"}<small>${l.deal_score == null ? "no comps" : l.comps_count + " comps"}</small></div>
       </div>`).join("") : `<div class="empty">Nothing matches these filters. Try “all listings”.</div>`) +
     `<div class="note">Pins sit on the suburb centre, not the exact house. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected.</div>`;
   list.querySelectorAll(".item").forEach(el => el.addEventListener("click", () => {

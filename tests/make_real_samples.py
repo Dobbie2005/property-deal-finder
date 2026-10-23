@@ -1,4 +1,5 @@
 """Scrubbed copies of real Property24 alert emails (Oct 2026): personal ids and tokens removed."""
+import re
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -35,7 +36,10 @@ def email(subject, heading, cards, crit, intro="we have results matching your al
     m["From"] = "Property24 Alert <no-reply@property24.com>"
     m["Subject"] = subject
     m.set_content(body)
-    m.add_alternative("<html><body><p>(HTML version omitted)</p></body></html>", subtype="html")
+    imgs = "".join(f'<img src="https://images.prop24.com/{n}0/Crop318x212" width="317"\r\n   alt="P24-{n}" border="0" />'
+                   for n in re.findall(r"\[image: P24-(\d+)\]", body))
+    m.add_alternative(f"<html><body>{imgs}<img src='https://www.property24.com/logo.png' alt='Property24'></body></html>",
+                      subtype="html")
     return m
 
 

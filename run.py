@@ -26,7 +26,7 @@ from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_rece
 
 COLUMNS = ["id", "source", "url", "title", "property_type", "price", "bedrooms", "bathrooms",
            "floor_m2", "erf_m2", "suburb", "city", "province", "region", "lat", "lng", "last_seen",
-           "suburb_median", "comps_count", "deal_score", "score_basis"]
+           "suburb_median", "comps_count", "deal_score", "score_basis", "image_url"]
 MANUAL_CSV = Path(__file__).parent / "data" / "manual_listings.csv"
 
 

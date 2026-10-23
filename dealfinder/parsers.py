@@ -245,9 +245,22 @@ def _p24_type(line: str) -> Optional[str]:
     return None
 
 
-def parse_property24_alert(text: str) -> list[dict]:
-    """Parse the plain-text body of a Property24 alert email."""
+def p24_photos(html: Optional[str]) -> dict[str, str]:
+    """Listing photos in the HTML version: <img src="https://images.prop24.com/..." alt="P24-117748166">."""
+    if not html:
+        return {}
+    photos = {}
+    for img in BeautifulSoup(html, "html.parser").find_all("img", alt=re.compile(r"^\s*P24-\d+\s*$")):
+        src = (img.get("src") or "").strip()
+        if src.startswith("https://"):
+            photos[img["alt"].strip()[4:]] = src
+    return photos
+
+
+def parse_property24_alert(text: str, html: Optional[str] = None) -> list[dict]:
+    """Parse the plain-text body of a Property24 alert email (photos come from the HTML part)."""
     town, province = _p24_town(text)
+    photos = p24_photos(html)
     cards: dict[str, list[str]] = {}
     current = None
     for raw_line in text.splitlines():
@@ -268,7 +281,8 @@ def parse_property24_alert(text: str) -> list[dict]:
         rec = {"id": f"p24:{lid}", "source": "property24",
                "url": f"https://www.property24.com/General/RedirectToListing?listingNumber=P24-{lid}",
                "city": town, "province": province, "price": None, "bedrooms": None, "bathrooms": None,
-               "floor_m2": None, "erf_m2": None, "property_type": None, "suburb": None, "title": None}
+               "floor_m2": None, "erf_m2": None, "property_type": None, "suburb": None, "title": None,
+               "image_url": photos.get(lid)}
         idx_type = None
         for i, line in enumerate(lines):
             if rec["price"] is None and PRICE_RE.search(line):
@@ -304,7 +318,8 @@ def parse_message(msg: EmailMessage, resolver: Optional[Callable[[str], Optional
     if "property24" in sender and text_part is not None:
         text = text_part.get_content()
         if "RedirectToListing" in text:
-            return parse_property24_alert(text)
+            html_part = msg.get_body(preferencelist=("html",))
+            return parse_property24_alert(text, html_part.get_content() if html_part is not None else None)
     use_resolver = resolver if any(d in sender for d in config.LISTING_SENDER_DOMAINS) else None
     html_part = msg.get_body(preferencelist=("html",))
     if html_part is not None:
