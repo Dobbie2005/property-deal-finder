@@ -163,3 +163,13 @@ def test_geocoder_rejects_a_same_named_suburb_far_from_its_town():
     geo._lookup = lambda q: answers.get(q, (None, None))
     assert geo.locate({"suburb": "Normandie", "city": "Brackenfell", "province": "Western Cape"}) == (-33.883, 18.70)
     assert geo.locate({"suburb": "Kleinbron", "city": "Brackenfell", "province": "Western Cape"}) == (-33.852, 18.687)
+
+
+def test_flags_listing_looking_emails_that_could_not_be_read():
+    assert run.looks_like_listing_email({"sender": "Private Property <alerts@privateproperty.co.za>", "subject": "New"})
+    assert run.looks_like_listing_email({"sender": "Seeff <x@seeff.com>", "subject": "Just listed",
+                                         "plain": "3 Bedroom house R 2 450 000"})
+    assert not run.looks_like_listing_email({"sender": "Property24 <no-reply@property24.com>",
+                                             "subject": "Property24 Account Activation"})
+    assert not run.looks_like_listing_email({"sender": "Google <no-reply@accounts.google.com>",
+                                             "subject": "Security alert", "plain": "hi"})

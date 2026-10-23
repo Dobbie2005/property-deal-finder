@@ -20,7 +20,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from dealfinder import config
-from dealfinder.parsers import extract_details, match_listing, parse_message
+from dealfinder.parsers import PRICE_RE, extract_details, match_listing, parse_message
 from dealfinder.scoring import assign_region, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
 
@@ -80,6 +80,18 @@ def merge_into(existing: dict, new: dict) -> dict:
         if v not in (None, ""):
             merged[k] = v
     return merged
+
+
+def looks_like_listing_email(row: dict) -> bool:
+    """True for emails from a listing site, or anything mentioning prices and bedrooms."""
+    sender = (row.get("sender") or "").lower()
+    subject = (row.get("subject") or "").lower()
+    if any(w in subject for w in ("activat", "verify", "welcome", "password", "security")):
+        return False
+    if any(d in sender for d in config.LISTING_SENDER_DOMAINS):
+        return True
+    text = (row.get("plain") or "") + " " + (row.get("html") or "")[:20000]
+    return bool(PRICE_RE.search(text)) and "bedroom" in text.lower()
 
 
 def raw_row_to_message(row: dict) -> EmailMessage:
@@ -169,9 +181,16 @@ def main() -> int:
     # Emails copied in by the Google Apps Script (the normal route)
     raw = db.select_all("raw_emails", order="received_at", select="id,sender,subject,html,plain",
                         filters={"processed": "is.false"})
+    unread: list[str] = []  # emails that look like listings but we couldn't read
     for row in raw:
-        parsed += parse_message(raw_row_to_message(row), resolver)
+        found = parse_message(raw_row_to_message(row), resolver)
+        parsed += found
+        if not found and looks_like_listing_email(row):
+            unread.append(f"{(row.get('sender') or '?').split('<')[0].strip()}: {row.get('subject') or ''}"[:120])
     n_emails = len(raw)
+    if unread:
+        notes.append(f"- ⚠️ {len(unread)} email(s) looked like listings but couldn't be read "
+                     "(a site may have changed its layout or be new): " + "; ".join(f"`{u}`" for u in unread[:5]))
 
     # Optional: read Gmail directly with an app password (only if one is set up)
     imap_ok = False

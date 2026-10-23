@@ -18,6 +18,9 @@
       --bg: #141816; --panel: #1c2120; --ink: #e8ebe9; --muted: #9aa49f; --line: #2c3331; --accent: #5fc08f;
     }
   }
+  :root[data-theme="dark"] {
+    --bg: #141816; --panel: #1c2120; --ink: #e8ebe9; --muted: #9aa49f; --line: #2c3331; --accent: #5fc08f;
+  }
   * { box-sizing: border-box; }
   body { margin: 0; height: 100vh; display: flex; flex-direction: column; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
   header { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -47,6 +50,15 @@
   .leaflet-popup-content { font-size: 13px; line-height: 1.5; }
   .leaflet-popup-content a.open { display: inline-block; margin-top: 6px; font-weight: 600; color: var(--accent); }
   .note { font-size: 11.5px; color: var(--muted); padding: 10px 14px; }
+  .themebtn { margin-left: auto; border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
+  .cluster { border-radius: 50%; background: var(--c); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px;
+             border: 2px solid #fff; text-shadow: 0 1px 2px rgba(0,0,0,.55);
+             box-shadow: 0 0 0 5px color-mix(in srgb, var(--c) 35%, transparent), 0 1px 4px rgba(0,0,0,.4); }
+  /* Leaflet's own controls and popups follow the theme */
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip, .leaflet-bar a, .leaflet-control-layers,
+  .leaflet-control-attribution { background: var(--panel) !important; color: var(--ink) !important; }
+  .leaflet-bar a { border-bottom-color: var(--line) !important; }
+  .leaflet-control-attribution a { color: var(--accent) !important; }
   @media (max-width: 760px) {
     body { height: auto; display: block; }
     main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; }
@@ -71,6 +83,7 @@
     <label>Type <select id="ptype"><option value="">any</option><option>house</option><option>townhouse</option><option>apartment</option><option>land</option><option>farm</option></select></label>
     <label><input type="checkbox" id="dropsOnly"> price dropped</label>
   </div>
+  <button class="themebtn" id="themeBtn" title="Switch between automatic, light and dark">Theme: Auto</button>
 </header>
 <main>
   <div id="list"><div class="empty">Loading listings…</div></div>
@@ -93,14 +106,31 @@ const REGIONS = {
   tzaneen:     { label: "Tzaneen",              center: [-23.8332, 30.1635], zoom: 12 },
 };
 
-const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function colour(s) {
-  if (s == null) return css("--none");
-  if (s >= 15) return css("--great");
-  if (s >= 5) return css("--good");
-  if (s >= -5) return css("--fair");
-  return css("--high");
+  if (s == null) return "var(--none)";
+  if (s >= 15) return "var(--great)";
+  if (s >= 5) return "var(--good)";
+  if (s >= -5) return "var(--fair)";
+  return "var(--high)";
 }
+// How much to trust a score, by how many similar listings it was based on
+const confidence = n => n >= 10 ? "solid" : n >= 6 ? "fair" : "early estimate";
+
+// ---- Light / dark theme ---------------------------------------------------------
+const THEMES = ["auto", "light", "dark"];
+let theme = "auto";
+try { theme = localStorage.getItem("theme") || "auto"; } catch (e) {}
+const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+const isDark = () => theme === "dark" || (theme === "auto" && darkQuery.matches);
+function applyTheme() {
+  if (theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  document.getElementById("themeBtn").textContent =
+    "Theme: " + { auto: "Auto", light: "Light", dark: "Dark" }[theme];
+  const gl = openFreeMap && openFreeMap.getMaplibreMap && openFreeMap.getMaplibreMap();
+  if (gl && gl._dfStyle !== streetStyle()) { gl._dfStyle = streetStyle(); gl.setStyle(streetStyle()); }
+}
+const streetStyle = () => `https://tiles.openfreemap.org/styles/${isDark() ? "dark" : "liberty"}`;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rand = v => v ? "R " + Math.round(v).toLocaleString("en-ZA").replace(/,/g, " ") : "POA";
 const num = v => v == null ? null : +(+v).toFixed(1);
@@ -108,11 +138,15 @@ const num = v => v == null ? null : +(+v).toFixed(1);
 let all = [], region = "all";
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
-const map = L.map("map", { zoomControl: true, maxZoom: 19 });
+const SA_BOUNDS = L.latLngBounds([-35.6, 15.5], [-21.2, 33.5]);
+const map = L.map("map", {
+  zoomControl: true, maxZoom: 19, minZoom: 5,
+  maxBounds: SA_BOUNDS.pad(0.15), maxBoundsViscosity: 1.0, worldCopyJump: false,
+});
 // Map backgrounds: all free, no API key, and they work when the page is opened as a local file.
 const esri = (service, attribution) => L.tileLayer(
   `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`,
-  { maxZoom: 19, attribution });
+  { maxZoom: 19, attribution, noWrap: true, bounds: SA_BOUNDS.pad(0.5) });
 const esriStreets = esri("World_Street_Map", "Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors");
 const satellite = L.layerGroup([
   esri("World_Imagery", "Imagery &copy; Esri, Maxar, Earthstar Geographics"),
@@ -125,7 +159,7 @@ function webglAvailable() {
 }
 const openFreeMap = (window.L.maplibreGL && webglAvailable())
   ? L.maplibreGL({
-      style: "https://tiles.openfreemap.org/styles/liberty",
+      style: streetStyle(),
       attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
     })
   : null;
@@ -137,14 +171,25 @@ try { baseName = localStorage.getItem("baseMap") || "Streets"; } catch (e) {}
 (baseMaps[baseName] || baseMaps.Streets).addTo(map);
 L.control.layers(baseMaps, null, { position: "topright" }).addTo(map);
 map.on("baselayerchange", e => { try { localStorage.setItem("baseMap", e.name); } catch (err) {} });
-const cluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 40 });
+const cluster = L.markerClusterGroup({
+  showCoverageOnHover: false, maxClusterRadius: 40,
+  iconCreateFunction: c => {
+    const scores = c.getAllChildMarkers().map(m => m.options.score).filter(s => s != null);
+    const best = scores.length ? Math.max(...scores) : null;
+    const n = c.getChildCount();
+    const size = n < 10 ? 34 : n < 100 ? 40 : 46;
+    return L.divIcon({ className: "", iconSize: [size, size],
+      html: `<div class="cluster" style="--c:${colour(best)};width:${size}px;height:${size}px">${n}</div>` });
+  },
+});
 map.addLayer(cluster);
 
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = () => {
   const d = L.DomUtil.create("div", "legend");
   d.innerHTML = [["--great","15%+ below similar"],["--good","5–15% below"],["--fair","about market"],["--high","above market"],["--none","not enough comps yet"]]
-    .map(([v, t]) => `<div><span class="dot" style="background:${css(v)}"></span>${t}</div>`).join("");
+    .map(([v, t]) => `<div><span class="dot" style="background:var(${v})"></span>${t}</div>`).join("")
+    + `<div style="margin-top:4px;color:var(--muted)">Bubbles show how many listings;<br>colour = best deal inside</div>`;
   return d;
 };
 legend.addTo(map);
@@ -152,9 +197,10 @@ legend.addTo(map);
 function basisText(l) {
   if (l.deal_score == null) return "Not enough similar listings in this suburb yet to score it.";
   const dir = l.deal_score >= 0 ? `${Math.abs(l.deal_score).toFixed(0)}% below` : `${Math.abs(l.deal_score).toFixed(0)}% above`;
-  return l.score_basis === "price_per_m2"
+  const how = l.score_basis === "price_per_m2"
     ? `${dir} the median of ${rand(l.suburb_median)}/m² across ${l.comps_count} similar listings in ${esc(l.suburb)}.`
     : `${dir} the median price of ${l.comps_count} other ${num(l.bedrooms)}-bed listings in ${esc(l.suburb)}.`;
+  return `${how} <span class="meta">(${confidence(l.comps_count)})</span>`;
 }
 
 function popup(l) {
@@ -193,7 +239,7 @@ function render() {
   for (const l of rows) {
     if (l.lat == null) continue;
     const icon = L.divIcon({ className: "", html: `<div class="pin" style="background:${colour(l.deal_score)}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
-    const m = L.marker([l.lat, l.lng], { icon }).bindPopup(popup(l), { maxWidth: 290 });
+    const m = L.marker([l.lat, l.lng], { icon, score: l.deal_score }).bindPopup(popup(l), { maxWidth: 290 });
     cluster.addLayer(m);
     markers[l.id] = m;
   }
@@ -206,7 +252,7 @@ function render() {
   list.innerHTML = `<div class="summary">${rows.length} listing${rows.length === 1 ? "" : "s"} shown · ${scored} scored · ${all.length} in total</div>` +
     (rows.length ? rows.slice(0, 300).map(l => `
       <div class="item" data-id="${esc(l.id)}">
-        <div class="badge" style="background:${colour(l.deal_score)}">${l.deal_score == null ? "–" : (l.deal_score > 0 ? "−" : "+") + Math.abs(l.deal_score).toFixed(0) + "%"}<small>${l.deal_score == null ? "no comps" : "vs area"}</small></div>
+        <div class="badge" style="background:${colour(l.deal_score)}">${l.deal_score == null ? "–" : (l.deal_score > 0 ? "−" : "+") + Math.abs(l.deal_score).toFixed(0) + "%"}<small>${l.deal_score == null ? "no comps" : l.comps_count + " comps"}</small></div>
         <div><div class="price">${rand(l.price)}</div>
           ${l.first_price && l.price < l.first_price ? `<div class="drop">was ${rand(l.first_price)}</div>` : ""}
           <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
@@ -248,6 +294,14 @@ async function load() {
   }
   return rows;
 }
+
+document.getElementById("themeBtn").addEventListener("click", () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  try { localStorage.setItem("theme", theme); } catch (e) {}
+  applyTheme();
+});
+darkQuery.addEventListener("change", () => { if (theme === "auto") applyTheme(); });
+applyTheme();
 
 if (!REGIONS[region]) region = "all";
 setRegion(region, false);
