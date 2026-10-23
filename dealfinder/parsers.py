@@ -312,9 +312,91 @@ def parse_property24_alert(text: str, html: Optional[str] = None) -> list[dict]:
     return out
 
 
+# --- Private Property alert emails (daily summary, instant alerts, price drops) ------------
+# Each card in the plain-text version looks like:
+#   <https://www.privateproperty.co.za/ld/T5666495?utm_source=...>
+#   R 3 900 000
+#   4 bed house in Bendor
+#   27 Bendor Drive                      (street address, sometimes)
+#   View Property
+# Instant alerts put "View Property" before the price. The town isn't in the email; run.py works it
+# out from the suburb.
+
+PP_SHORT_RE = re.compile(r"privateproperty\.co\.za/ld/([A-Z]{1,3}\d{4,})", re.I)
+PP_LABELS = {"new", "price reduced", "view property", "reduced", "on show"}
+PP_DESC_RE = re.compile(r"^(?P<what>.+?)\s+in\s+(?P<suburb>[^,]+?)\s*$", re.I)
+ADDRESS_RE = re.compile(r"^\d+[A-Za-z]?\s+\S+|\b(road|street|str|st|drive|dr|avenue|ave|crescent|close|lane|way|"
+                        r"boulevard|place|circle|estate)\b", re.I)
+
+
+def pp_photos(html: Optional[str]) -> dict[str, str]:
+    """Listing photos: <a href=".../ld/T5666495..."><img src="https://images.pp.co.za/..."></a>."""
+    if not html:
+        return {}
+    photos = {}
+    for a in BeautifulSoup(html, "html.parser").find_all("a", href=PP_SHORT_RE):
+        img = a.find("img")
+        src = (img.get("src") or "").strip() if img else ""
+        if src.startswith("https://"):
+            photos.setdefault(PP_SHORT_RE.search(a["href"]).group(1).upper(), src)
+    return photos
+
+
+def parse_privateproperty_alert(text: str, html: Optional[str] = None) -> list[dict]:
+    photos = pp_photos(html)
+    cards: dict[str, list[str]] = {}
+    current = None
+    for raw_line in text.splitlines():
+        m = PP_SHORT_RE.search(raw_line)
+        if m:
+            current = m.group(1).upper()
+            cards.setdefault(current, [])
+            continue
+        line = re.sub(r"<https?://[^>]*>|https?://\S+", "", raw_line).strip()
+        if not line or current is None or line.lower() in PP_LABELS:
+            continue
+        cards[current].append(line)
+
+    out = []
+    for lid, lines in cards.items():
+        rec = {"id": f"pp:{lid}", "source": "privateproperty", "url": f"https://www.privateproperty.co.za/ld/{lid}",
+               "price": None, "bedrooms": None, "bathrooms": None, "floor_m2": None, "erf_m2": None,
+               "property_type": None, "suburb": None, "city": None, "province": None, "title": None,
+               "address": None, "image_url": photos.get(lid)}
+        for i, line in enumerate(lines):
+            if rec["price"] is None and PRICE_RE.fullmatch(line.replace("\u00a0", " ")):
+                p = _num(PRICE_RE.search(line).group(1))
+                rec["price"] = int(p) if p and p >= config.MIN_PRICE else None
+                continue
+            m = PP_DESC_RE.match(line)
+            if rec["price"] is not None and rec["suburb"] is None and m and _p24_type(m.group("what")):
+                what = m.group("what")
+                rec["suburb"] = m.group("suburb").strip()
+                rec["property_type"] = _p24_type(what)
+                rec["title"] = line
+                beds = re.match(r"([\d.]+)\s+bed", what, re.I)
+                if beds:
+                    rec["bedrooms"] = float(beds.group(1))
+                ha = re.search(r"([\d.]+)\s*ha\b", what, re.I)
+                if ha:
+                    rec["erf_m2"] = float(ha.group(1)) * 10_000
+                nxt = lines[i + 1] if i + 1 < len(lines) else ""
+                if nxt and len(nxt) <= 80 and ADDRESS_RE.search(nxt) and not PRICE_RE.search(nxt):
+                    rec["address"] = nxt
+                break
+        if rec["suburb"] and rec["price"]:
+            out.append(rec)
+    return out
+
+
 def parse_message(msg: EmailMessage, resolver: Optional[Callable[[str], Optional[str]]] = None) -> list[dict]:
     sender = (msg.get("From") or "").lower()
     text_part = msg.get_body(preferencelist=("plain",))
+    if "privateproperty" in sender and text_part is not None:
+        text = text_part.get_content()
+        if PP_SHORT_RE.search(text):
+            html_part = msg.get_body(preferencelist=("html",))
+            return parse_privateproperty_alert(text, html_part.get_content() if html_part is not None else None)
     if "property24" in sender and text_part is not None:
         text = text_part.get_content()
         if "RedirectToListing" in text:

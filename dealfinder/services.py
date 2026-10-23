@@ -139,23 +139,24 @@ class Geocoder:
         return "|".join((x or "").strip().lower() for x in (suburb, city, province))
 
     def _lookup(self, query: str) -> tuple[Optional[float], Optional[float]]:
+        hits = self._search(query, 1)
+        return hits[0] if hits else (None, None)
+
+    def _search(self, query: str, limit: int = 1) -> list[tuple[float, float]]:
         if self.calls >= config.MAX_GEOCODES_PER_RUN:
-            return None, None
+            return []
         self.calls += 1
         time.sleep(1.1)  # Nominatim usage policy: max 1 request per second
-        params = {"q": query, "format": "json", "limit": 1, "countrycodes": "za"}
+        params = {"q": query, "format": "json", "limit": limit, "countrycodes": "za"}
         if config.NOMINATIM_EMAIL:
             params["email"] = config.NOMINATIM_EMAIL
         try:
             r = requests.get("https://nominatim.openstreetmap.org/search", params=params,
                              headers={"User-Agent": UA}, timeout=20)
             r.raise_for_status()
-            hits = r.json()
-            if hits:
-                return float(hits[0]["lat"]), float(hits[0]["lon"])
+            return [(float(h["lat"]), float(h["lon"])) for h in r.json()]
         except (requests.RequestException, ValueError, KeyError):
-            pass
-        return None, None
+            return []
 
     def _get(self, suburb, city, province) -> tuple[Optional[float], Optional[float]]:
         k = self.key(suburb, city, province)
@@ -172,7 +173,41 @@ class Geocoder:
 
     MAX_KM_FROM_TOWN = 15  # a suburb further than this from its town is a wrong match (e.g. another "Normandie")
 
+    def resolve_town(self, rec: dict, known: dict) -> None:
+        """Fill in city/province for listings whose email didn't say (Private Property).
+        known: normalised suburb name -> (city, province), from listings that do say."""
+        from .scoring import haversine_km, norm
+        sub = rec.get("suburb")
+        if rec.get("city") or not sub:
+            return
+        if norm(sub) in known:
+            rec["city"], rec["province"] = known[norm(sub)]
+            return
+        for town, (_, _, prov) in config.TOWNS.items():  # e.g. "22.7 ha farm in Tzaneen"
+            if norm(town) == norm(sub):
+                rec["city"], rec["province"] = town, prov
+                return
+        k = "town?|" + norm(sub)
+        if k not in self.cache:
+            if self.calls >= config.MAX_GEOCODES_PER_RUN:
+                return  # try again next run
+            row = {"key": k, "suburb": sub, "city": None, "province": None, "lat": None, "lng": None}
+            for lat, lng in self._search(f"{sub}, South Africa", 5):
+                town, dist = min(((t, haversine_km(lat, lng, v[0], v[1])) for t, v in config.TOWNS.items()),
+                                 key=lambda x: x[1])
+                if dist <= self.MAX_KM_FROM_TOWN:
+                    row.update(city=town, province=config.TOWNS[town][2], lat=lat, lng=lng)
+                    break
+            self.cache[k] = row
+            self.new_rows.append(row)
+        hit = self.cache[k]
+        if hit.get("city"):
+            rec["city"], rec["province"] = hit["city"], hit["province"]
+
+    MAX_KM_FROM_SUBURB = 3  # a street address further than this from its suburb is a wrong match
+
     def locate(self, rec: dict) -> tuple[Optional[float], Optional[float]]:
+        """Street address if we have one, else suburb centre, else town centre (sets rec['pin_level'])."""
         from .scoring import haversine_km
         town = self._get(None, rec.get("city"), rec.get("province")) if rec.get("city") else (None, None)
 
@@ -183,8 +218,14 @@ class Geocoder:
         pt = self._get(rec.get("suburb"), rec.get("city"), rec.get("province"))
         if not near_town(pt) and rec.get("city"):  # the suburb may be filed under a neighbouring town
             pt = self._get(rec.get("suburb"), None, rec.get("province"))
+        rec["pin_level"] = "suburb" if near_town(pt) else ("town" if town[0] is not None else None)
         if not near_town(pt):  # fall back to the town centre
             pt = town
+        if rec.get("address") and pt[0] is not None:
+            addr = self._get(rec["address"], rec.get("suburb"), rec.get("city"))
+            if addr[0] is not None and haversine_km(addr[0], addr[1], pt[0], pt[1]) <= self.MAX_KM_FROM_SUBURB:
+                rec["pin_level"] = "address"
+                return addr
         return pt
 
     def save(self) -> None:

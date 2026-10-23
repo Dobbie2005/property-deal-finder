@@ -209,3 +209,67 @@ def test_trend_link_from_resolved_listing_url():
     finally:
         r.RedirectResolver = orig
     assert rows[0]["trends_url"] == "https://www.property24.com/durbanville/vierlanden/property-trends/9559"
+
+
+def test_real_privateproperty_daily_summary():
+    found = {r["id"]: r for r in parse_message(load("pp_real_daily.eml"))}
+    assert len(found) == 6
+    b = found["pp:T5666495"]
+    assert (b["price"], b["bedrooms"], b["property_type"], b["suburb"], b["address"]) == \
+        (3_900_000, 4, "house", "Bendor", "27 Bendor Drive")
+    assert b["url"] == "https://www.privateproperty.co.za/ld/T5666495"
+    assert b["image_url"].startswith("https://images.pp.co.za/listing/T5666495/")
+    assert found["pp:T5666748"]["property_type"] == "commercial"          # "Retail space in Fauna Park"
+    farm = found["pp:T5666544"]
+    assert farm["property_type"] == "farm" and farm["erf_m2"] == 227_000 and farm["address"] is None  # "JAFFRAY"
+
+
+def test_real_privateproperty_price_drop_instant_alert():
+    (r,) = parse_message(load("pp_real_instant.eml"))
+    assert (r["id"], r["price"], r["property_type"], r["suburb"]) == ("pp:T5400760", 1_230_000, "land", "Bendor")
+
+
+def test_same_home_on_both_sites_counts_once():
+    from dealfinder.scoring import mark_duplicates
+    rows = [
+        {"id": "p24:1", "source": "property24", "suburb": "Bendor", "property_type": "house", "bedrooms": 4, "price": 3_899_000},
+        {"id": "pp:T1", "source": "privateproperty", "suburb": "Bendor", "property_type": "house", "bedrooms": 4, "price": 3_900_000},
+        {"id": "pp:T2", "source": "privateproperty", "suburb": "Bendor", "property_type": "house", "bedrooms": 4, "price": 3_950_000},
+        {"id": "p24:2", "source": "property24", "suburb": "De Bron", "property_type": "land", "bedrooms": None, "price": 1_230_000},
+        {"id": "pp:T3", "source": "privateproperty", "suburb": "Debron", "property_type": "land", "bedrooms": None, "price": 1_230_000},
+    ]
+    assert mark_duplicates(rows) == 2
+    dup = {r["id"]: r["duplicate_of"] for r in rows}
+    assert dup == {"p24:1": None, "pp:T1": "p24:1", "pp:T2": None, "p24:2": None, "pp:T3": "p24:2"}
+
+
+def test_town_for_private_property_listings():
+    import dealfinder.services as svc
+
+    class NoDB:
+        def select_all(self, *a, **k): return []
+    geo = svc.Geocoder(NoDB())
+    geo._search = lambda q, limit=1: {"Schoongezicht, South Africa": [(-26.2, 28.0), (-33.817, 18.648)],
+                                      "Atlantis, South Africa": [(-33.57, 18.49)]}.get(q, [])
+    known = {"bendor": ("Polokwane", "Limpopo")}
+    recs = [{"suburb": "Bendor"}, {"suburb": "Tzaneen"}, {"suburb": "Schoongezicht"}, {"suburb": "Atlantis"}]
+    for r in recs:
+        geo.resolve_town(r, known)
+    assert [r.get("city") for r in recs] == ["Polokwane", "Tzaneen", "Durbanville", None]  # Atlantis is outside our areas
+
+
+def test_street_address_gives_an_exact_pin_only_if_near_the_suburb():
+    import dealfinder.services as svc
+
+    class NoDB:
+        def select_all(self, *a, **k): return []
+    answers = {"Polokwane, Limpopo, South Africa": (-23.906, 29.461),
+               "Bendor, Polokwane, Limpopo, South Africa": (-23.888, 29.485),
+               "27 Bendor Drive, Bendor, Polokwane, South Africa": (-23.884, 29.489),
+               "1 Far Road, Bendor, Polokwane, South Africa": (-23.70, 29.30)}
+    geo = svc.Geocoder(NoDB())
+    geo._lookup = lambda q: answers.get(q, (None, None))
+    r = {"suburb": "Bendor", "city": "Polokwane", "province": "Limpopo", "address": "27 Bendor Drive"}
+    assert geo.locate(r) == (-23.884, 29.489) and r["pin_level"] == "address"
+    r2 = {"suburb": "Bendor", "city": "Polokwane", "province": "Limpopo", "address": "1 Far Road"}
+    assert geo.locate(r2) == (-23.888, 29.485) and r2["pin_level"] == "suburb"

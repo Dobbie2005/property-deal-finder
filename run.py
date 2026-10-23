@@ -21,13 +21,14 @@ from pathlib import Path
 
 from dealfinder import config
 from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
-from dealfinder.scoring import assign_region, score_listings
+from dealfinder.scoring import assign_region, mark_duplicates, norm, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
 
 COLUMNS = ["id", "source", "url", "title", "property_type", "price", "bedrooms", "bathrooms",
            "floor_m2", "erf_m2", "suburb", "city", "province", "region", "lat", "lng", "last_seen",
            "suburb_median", "comps_count", "deal_score", "score_basis", "image_url",
-           "wide_median", "wide_comps", "wide_score", "wide_basis", "trends_url"]
+           "wide_median", "wide_comps", "wide_score", "wide_basis", "trends_url",
+           "address", "pin_level", "duplicate_of"]
 MANUAL_CSV = Path(__file__).parent / "data" / "manual_listings.csv"
 
 
@@ -251,6 +252,11 @@ def main() -> int:
 
     # 3) Map coordinates + region ------------------------------------------------
     geo = Geocoder(db)
+    known_towns = {norm(r["suburb"]): (r["city"], r.get("province"))
+                   for r in sorted(all_rows.values(), key=lambda r: r.get("source") != "property24", reverse=True)
+                   if r.get("suburb") and r.get("city")}  # Property24's answer wins
+    for r in all_rows.values():
+        geo.resolve_town(r, known_towns)
     for r in all_rows.values():
         if r.get("lat") is None:
             r["lat"], r["lng"] = geo.locate(r)
@@ -260,6 +266,7 @@ def main() -> int:
     # 4) Score everything and save -----------------------------------------------
     rows = list(all_rows.values())
     n_trends = add_trend_links(rows, config.MAX_TREND_LOOKUPS_PER_RUN)
+    n_dupes = mark_duplicates(rows)
     score_listings(rows, now)
     payload = []
     for r in rows:
@@ -308,6 +315,7 @@ def main() -> int:
          if size_mb is not None else "- Database size: unknown"),
         f"- Old listings removed: {len(stale)}",
         f"- Area-trend links added: {n_trends}",
+        f"- Homes listed on both sites (shown once): {n_dupes}",
         *notes,
         "",
         "### Top 10 deals right now",

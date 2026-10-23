@@ -11,6 +11,7 @@ Estimate, in order of preference:
 from __future__ import annotations
 
 import math
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 from statistics import median
@@ -25,8 +26,40 @@ def type_group(ptype: Optional[str]) -> str:
     return "house"  # houses, townhouses and unknown types are compared together
 
 
+def norm(name: Optional[str]) -> str:
+    """'De Bron', 'Debron' and 'de-bron' are the same suburb."""
+    return re.sub(r"[^a-z]", "", (name or "").lower())
+
+
 def _key(r: dict) -> tuple:
-    return ((r.get("suburb") or "").lower(), (r.get("city") or "").lower(), type_group(r.get("property_type")))
+    return (norm(r.get("suburb")), norm(r.get("city")), type_group(r.get("property_type")))
+
+
+def mark_duplicates(rows: list[dict]) -> int:
+    """The same home listed on two sites: same suburb, type and bedrooms, price within 2%.
+    The Property24 copy (or the older one) stays; the other gets duplicate_of = its id."""
+    for r in rows:
+        r["duplicate_of"] = None
+    groups = defaultdict(list)
+    for r in sorted(rows, key=lambda r: (r.get("source") != "property24", str(r.get("first_seen") or ""))):
+        if r.get("price") and r.get("suburb"):
+            groups[(norm(r["suburb"]), type_group(r.get("property_type")), r.get("bedrooms"))].append(r)
+    n = 0
+    for members in groups.values():
+        kept: list[dict] = []
+        twinned: set = set()  # (kept id, other site): a home has at most one twin per site
+        for r in members:
+            options = [k for k in kept if k.get("source") != r.get("source")
+                       and (k["id"], r.get("source")) not in twinned
+                       and abs(k["price"] - r["price"]) <= 0.02 * max(k["price"], r["price"])]
+            if options:
+                twin = min(options, key=lambda k: abs(k["price"] - r["price"]))
+                twinned.add((twin["id"], r.get("source")))
+                r["duplicate_of"] = twin["id"]
+                n += 1
+            else:
+                kept.append(r)
+    return n
 
 
 def _estimate(r: dict, comps: list[dict]) -> Optional[tuple]:
@@ -56,7 +89,8 @@ def score_listings(rows: list[dict], now: datetime) -> None:
       in suburbs within NEARBY_KM (the map has a switch to use these)
     """
     cutoff = now - timedelta(days=config.COMPS_WINDOW_DAYS)
-    recent = [r for r in rows if r.get("price") and r.get("last_seen") and r["last_seen"] >= cutoff]
+    recent = [r for r in rows if r.get("price") and r.get("last_seen") and r["last_seen"] >= cutoff
+              and not r.get("duplicate_of")]  # a home listed on two sites only counts once
     groups = defaultdict(list)
     for r in recent:
         groups[_key(r)].append(r)

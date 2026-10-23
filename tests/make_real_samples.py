@@ -65,6 +65,58 @@ samples = {
     ], CRIT["brackenfell"]),
 }
 
+# --- Private Property (layout copied from real alerts, Oct 2026) ---------------------------------
+PPL = "https://www.privateproperty.co.za/ld/{n}?utm_source&#x3D;{src}&amp;utm_medium&#x3D;email&amp;utm_campaign&#x3D;x"
+
+
+def pp_daily(cards):
+    lines, html = ["", "<http://privateproperty.co.za>", "", "                            Hello,",
+                   "                            22 new listings that match your search criteria"], []
+    for n, price, desc, addr in cards:
+        link = PPL.format(n=n, src="daily-alert")
+        lines += ["                        New", f"<{link}>", price, f"                                    {desc}"]
+        if addr:
+            lines += [f"                                    {addr}"]
+        lines += [f"<{link}>", "View Property"]
+        html.append(f'<a href="{link}"><img src="https://images.pp.co.za/listing/{n}/abc/320/200/contain/jpegorpng" '
+                    f'alt="{desc}"></a><span>{price}</span><td>{desc}</td>')
+    lines += ["<https://www.privateproperty.co.za/>", "Visit Private Property |", "Unsubscribe",
+              "                Copyright © Private Property Listings (Pty) Ltd 1997 - 2026. All Rights Reserved"]
+    m = EmailMessage()
+    m["From"] = "Private Property <noreply@privateproperty.co.za>"
+    m["Subject"] = "Latest Property Updates from Private Property"
+    m.set_content("\r\n".join(lines))
+    m.add_alternative("<html><body>" + "".join(html) + "</body></html>", subtype="html")
+    return m
+
+
+def pp_instant():
+    link = PPL.format(n="T5400760", src="instant-alert")
+    body = "\r\n".join(["", "<http://privateproperty.co.za>", "", "        Hello,", "        The price of this listing has dropped.",
+                         "    Price reduced", f"<{link}>", "", f"<{link}>", "View Property",
+                         "            R 1 230 000", "        ", "            Vacant land in Bendor", "        ",
+                         "    Are you receiving too many emails?", " You can choose to receive a",
+                         "<https://www.privateproperty.co.za/daily-alerts/sale/switchto?email&#x3D;x>",
+                         "daily summary by adjusting your notifications.", "Unsubscribe"])
+    m = EmailMessage()
+    m["From"] = "Private Property Instant Alerts <noreply@privateproperty.co.za>"
+    m["Subject"] = "Residential Land Price Reduced in Bendor - T5400760"
+    m.set_content(body)
+    m.add_alternative(f'<html><body><a href="{link}"><img src="https://images.pp.co.za/listing/T5400760/x/320/200/contain/jpegorpng"></a></body></html>',
+                      subtype="html")
+    return m
+
+
+samples["pp_real_daily.eml"] = pp_daily([
+    ("T5666748", "R 6 999 000", "Retail space in Fauna Park", None),
+    ("T5666412", "R 3 500 000", "5 bed house in North View Estate", None),
+    ("T5666495", "R 3 900 000", "4 bed house in Bendor", "27 Bendor Drive"),
+    ("T5667020", "R 3 950 000", "4 bed house in Bendor", "30 Solomon Road, Bendor Woodhill Estate"),
+    ("T5666529", "R 4 850 000", "3 bed house in Schoongezicht", None),
+    ("T5666544", "R 3 000 000", "22.7 ha farm in Tzaneen", "JAFFRAY"),
+])
+samples["pp_real_instant.eml"] = pp_instant()
+
 if __name__ == "__main__":
     for name, msg in samples.items():
         (HERE / name).write_bytes(bytes(msg))

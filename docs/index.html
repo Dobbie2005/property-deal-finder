@@ -208,7 +208,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const rand = v => v ? "R " + Math.round(v).toLocaleString("en-ZA").replace(/,/g, " ") : "POA";
 const num = v => v == null ? null : +(+v).toFixed(1);
 
-let all = [], region = "all";
+let all = [], twins = {}, region = "all";
+const SITE = { property24: "Property24", privateproperty: "Private Property", facebook: "Facebook", manual: "your list" };
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
 const SA_BOUNDS = L.latLngBounds([-35.6, 15.5], [-21.2, 33.5]);
@@ -295,10 +296,14 @@ function popup(l) {
   return `<div>${photo(l, "popup-photo")}<b>${esc(l.title || `${(l.property_type || "property").replace(/^./, c => c.toUpperCase())} in ${l.suburb}`)}</b>
     <div class="price" style="font-size:15px">${rand(l.price)}</div>${drop}
     <div class="meta">${esc(facts)}</div>
+    ${l.address ? `<div class="meta">${esc(l.address)}</div>` : ""}
     <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · listed ${ageText(l.first_seen)}${
       daysSince(l.last_seen) < daysSince(l.first_seen) ? ` · last in an alert ${ageText(l.last_seen)}` : ""}</div>
     <div style="margin-top:6px">${basisText(l)}</div>
-    <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open listing ↗</a>
+    <div class="meta" style="margin-top:4px">${l.pin_level === "address" ? "📍 Pin is at the street address."
+      : l.pin_level === "town" ? "Pin is at the town centre (suburb not found)." : "Pin is at the suburb centre."}</div>
+    <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open on ${SITE[l.source] || "site"} ↗</a>
+    ${(twins[l.id] || []).map(t => `&nbsp;·&nbsp;<a class="open" href="${esc(t.url)}" target="_blank" rel="noopener">Also on ${SITE[t.source] || "another site"} ↗</a>`).join("")}
     ${l.trends_url ? `&nbsp;·&nbsp;<a class="open" href="${esc(l.trends_url)}" target="_blank" rel="noopener" title="Average asking and sold prices for ${esc(l.suburb)} on Property24">Area sold prices ↗</a>` : ""}</div>`;
 }
 
@@ -359,11 +364,11 @@ function render() {
           ${l.first_price && l.price < l.first_price ? `<div class="drop">was ${rand(l.first_price)}</div>` : ""}
           <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
           <div class="meta">${[l.bedrooms && num(l.bedrooms) + " bed", l.floor_m2 && num(l.floor_m2) + " m²", l.property_type].filter(Boolean).join(" · ")}</div>
-          <div class="meta">listed ${ageText(l.first_seen)}</div>
+          <div class="meta">listed ${ageText(l.first_seen)} · ${twins[l.id] ? "on both sites" : esc(SITE[l.source] || l.source)}</div>
         </div>
         <div class="badge" style="background:${colour(S(l).score)}">${S(l).score == null ? "–" : (S(l).score > 0 ? "−" : "+") + Math.abs(S(l).score).toFixed(0) + "%"}<small>${S(l).score == null ? "no comps" : S(l).comps + ((S(l).basis || "").startsWith("nearby_") ? " near" : " comps")}</small></div>
       </div>`).join("") : `<div class="empty">Nothing matches these filters. Try “all listings” or “Listed: any time”.</div>`) +
-    `<div class="note">Pins sit on the suburb centre, not the exact house. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected. For what homes actually sold for, use “Area sold prices” in a listing’s popup.</div>`;
+    `<div class="note">Pins sit on the suburb centre unless the listing gave a street address. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected. For what homes actually sold for, use “Area sold prices” in a listing’s popup.</div>`;
   list.querySelectorAll(".item").forEach(el => el.addEventListener("click", () => {
     const m = markers[el.dataset.id];
     if (m && document.body.classList.contains("view-list")) setView("map");
@@ -435,7 +440,12 @@ applyTheme();
 
 if (!REGIONS[region]) region = "all";
 setRegion(region, false);
-load().then(rows => { all = rows; render(); })
+load().then(rows => {
+    twins = {};
+    for (const l of rows) if (l.duplicate_of) (twins[l.duplicate_of] ||= []).push(l);
+    all = rows.filter(l => !l.duplicate_of);
+    render();
+  })
   .catch(err => {
     document.getElementById("list").innerHTML =
       `<div class="empty">Couldn't load listings (${esc(err.message)}). If the database was paused for inactivity, open Supabase and restore it.</div>`;

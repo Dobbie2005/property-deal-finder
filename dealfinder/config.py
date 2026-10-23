@@ -28,6 +28,15 @@ REGIONS = {
     "tzaneen":     {"label": "Tzaneen",                 "lat": -23.8332, "lng": 30.1635, "radius_km": 25},
 }
 
+# Towns inside those areas (used to work out the town for listings whose email doesn't say)
+TOWNS = {
+    "Durbanville": (-33.8403, 18.6494, "Western Cape"),
+    "Bellville":   (-33.9064, 18.6271, "Western Cape"),
+    "Brackenfell": (-33.8831, 18.7000, "Western Cape"),
+    "Polokwane":   (-23.9058, 29.4614, "Limpopo"),
+    "Tzaneen":     (-23.8319, 30.1611, "Limpopo"),
+}
+
 # --- Scoring ------------------------------------------------------------------
 COMPS_WINDOW_DAYS = 180  # only compare against listings seen in the last ~6 months
 MIN_COMPS = 3            # need at least this many similar listings to give a score
