@@ -233,6 +233,19 @@ def main() -> int:
     db.mark_processed("raw_emails", [r["id"] for r in raw])
     db.delete_where("raw_emails", {"processed": "is.true",
                                    "created_at": f"lt.{(now - timedelta(days=config.KEEP_EMAILS_DAYS)).isoformat()}"})
+    sync_line = "- Gmail sync: no heartbeat yet (update the Apps Script to the latest Code.gs)"
+    try:
+        status = db.select_all("sync_status", order="id")
+        if status and status[0].get("last_run"):
+            mins = (now - parse_ts(status[0]["last_run"])).total_seconds() / 60
+            sync_line = f"- Gmail sync last ran {mins:.0f} min ago"
+            if status[0].get("error"):
+                sync_line += f" ⚠️ with an error: `{status[0]['error'][:200]}`"
+            elif mins > 45:
+                sync_line += " ⚠️ (it should run every 15 min; check script.google.com → Triggers)"
+    except Exception:  # noqa: BLE001
+        pass
+    notes.insert(0, sync_line)
     try:
         size_mb = float(db.rpc("db_size_mb"))
     except Exception:  # noqa: BLE001  (the size report is nice-to-have)

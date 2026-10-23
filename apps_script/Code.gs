@@ -31,14 +31,41 @@ function syncListingEmails() {
   // Look back to the previous run with a 1-hour overlap (first run: LOOKBACK_DAYS)
   const cutoff = Math.max(lastSync - 60 * 60 * 1000, startedAt - LOOKBACK_DAYS * 24 * 3600 * 1000);
   const afterSeconds = Math.floor(cutoff / 1000);
-
-  const threads = GmailApp.search(`after:${afterSeconds} -in:sent -in:drafts -in:trash -in:spam`, 0, MAX_THREADS);
   let added = 0, alreadyThere = 0, checked = 0;
 
-  threads.forEach(thread => {
-    thread.getMessages().forEach(m => {
+  try {
+    const threads = GmailApp.search(`after:${afterSeconds} -in:sent -in:drafts -in:trash -in:spam`, 0, MAX_THREADS);
+    threads.forEach(thread => copyThread_(thread, cutoff, r => r ? added++ : alreadyThere++, () => checked++));
+    props.setProperty('lastSyncMs', String(startedAt));
+    console.log(`Checked ${checked} recent email(s): ${added} new, ${alreadyThere} already copied.`);
+    if (added > 0) startGithubJob_();
+    heartbeat_(checked, added, null);
+  } catch (err) {
+    heartbeat_(checked, added, String(err && err.message || err));
+    throw err;
+  }
+}
+
+/** Records that the script ran (so the GitHub summary and the map can show it's alive). */
+function heartbeat_(checked, added, error) {
+  try {
+    UrlFetchApp.fetch(`${SUPABASE_URL}/rest/v1/rpc/sync_heartbeat`, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
+      payload: JSON.stringify({ p_token: INGEST_TOKEN, p_checked: checked, p_added: added, p_error: error }),
+      muteHttpExceptions: true,
+    });
+  } catch (e) {
+    console.error(`Heartbeat failed: ${e}`);
+  }
+}
+
+/** Sends each recent message in a Gmail thread to Supabase. */
+function copyThread_(thread, cutoff, onResult, onChecked) {
+  thread.getMessages().forEach(m => {
       if (m.getDate().getTime() < cutoff) return;
-      checked++;
+      onChecked();
       const payload = {
         p_token: INGEST_TOKEN,
         p_id: m.getId(),
@@ -59,13 +86,16 @@ function syncListingEmails() {
       if (code >= 300) {
         throw new Error(`Supabase rejected the email "${m.getSubject()}" (${code}): ${res.getContentText().slice(0, 300)}`);
       }
-      res.getContentText().trim() === 'true' ? added++ : alreadyThere++;
-    });
+      onResult(res.getContentText().trim() === 'true');
   });
+}
 
-  props.setProperty('lastSyncMs', String(startedAt));
-  console.log(`Checked ${checked} recent email(s): ${added} new, ${alreadyThere} already copied.`);
-  if (added > 0) startGithubJob_();
+/** Run this to see whether the 15-minute schedule is installed. */
+function checkSchedule() {
+  const triggers = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'syncListingEmails');
+  console.log(triggers.length
+    ? `Schedule is installed (${triggers.length} trigger). Last sync: ${new Date(Number(PropertiesService.getScriptProperties().getProperty('lastSyncMs') || 0))}`
+    : 'No schedule installed! Run setup again.');
 }
 
 /** Asks GitHub to run the listing check now (only when GITHUB_TOKEN is filled in). */
