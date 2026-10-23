@@ -61,6 +61,10 @@ class RedirectResolver:
         try:
             r = requests.head(url, allow_redirects=True, timeout=10, headers={"User-Agent": UA})
             final = r.url
+            if final == url or r.status_code >= 400:  # some sites don't answer HEAD: follow with GET, read nothing
+                with requests.get(url, allow_redirects=True, timeout=10, stream=True,
+                                  headers={"User-Agent": UA}) as g:
+                    final = g.url
         except requests.RequestException:
             pass
         self.cache[url] = final

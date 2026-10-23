@@ -29,38 +29,65 @@ def _key(r: dict) -> tuple:
     return ((r.get("suburb") or "").lower(), (r.get("city") or "").lower(), type_group(r.get("property_type")))
 
 
+def _estimate(r: dict, comps: list[dict]) -> Optional[tuple]:
+    """(median, estimate, basis, n) from comparable listings, or None if there aren't enough."""
+    floor = r.get("floor_m2")
+    ppm = [c["price"] / c["floor_m2"] for c in comps if c.get("floor_m2") and c["floor_m2"] >= 20]
+    if floor and floor >= 20 and len(ppm) >= config.MIN_COMPS:
+        med = median(ppm)
+        return med, med * floor, "price_per_m2", len(ppm)
+    beds = r.get("bedrooms")
+    if beds:
+        same = [c["price"] for c in comps if c.get("bedrooms") == beds]
+    elif type_group(r.get("property_type")) == "land":  # plots have no bedrooms: compare plot prices
+        same = [c["price"] for c in comps]
+    else:
+        same = []
+    if len(same) < config.MIN_COMPS:
+        return None
+    med = median(same)
+    return med, med, "price_same_beds", len(same)
+
+
 def score_listings(rows: list[dict], now: datetime) -> None:
-    """Adds suburb_median, comps_count, deal_score, score_basis to each row (in place)."""
+    """Adds two scores to each row (in place):
+    - deal_score etc.: compared with similar listings in the same suburb only
+    - wide_score etc.: the same, but if the suburb has too few, compared with similar listings
+      in suburbs within NEARBY_KM (the map has a switch to use these)
+    """
     cutoff = now - timedelta(days=config.COMPS_WINDOW_DAYS)
+    recent = [r for r in rows if r.get("price") and r.get("last_seen") and r["last_seen"] >= cutoff]
     groups = defaultdict(list)
-    for r in rows:
-        if r.get("price") and r.get("last_seen") and r["last_seen"] >= cutoff:
-            groups[_key(r)].append(r)
+    for r in recent:
+        groups[_key(r)].append(r)
 
     for r in rows:
-        r.update(suburb_median=None, comps_count=None, deal_score=None, score_basis=None)
+        r.update(suburb_median=None, comps_count=None, deal_score=None, score_basis=None,
+                 wide_median=None, wide_comps=None, wide_score=None, wide_basis=None)
         price = r.get("price")
         if not price:
             continue
+
         comps = [c for c in groups.get(_key(r), []) if c["id"] != r["id"]]
+        est = _estimate(r, comps)
+        if est:
+            med, estimate, basis, n = est
+            r.update(suburb_median=round(med, 2), comps_count=n,
+                     deal_score=round((estimate - price) / estimate * 100, 1), score_basis=basis)
+            r.update(wide_median=r["suburb_median"], wide_comps=n, wide_score=r["deal_score"], wide_basis=basis)
+            continue
 
-        floor = r.get("floor_m2")
-        ppm = [c["price"] / c["floor_m2"] for c in comps if c.get("floor_m2") and c["floor_m2"] >= 20]
-        if floor and floor >= 20 and len(ppm) >= config.MIN_COMPS:
-            med = median(ppm)
-            estimate, basis, n = med * floor, "price_per_m2", len(ppm)
-        else:
-            beds = r.get("bedrooms")
-            same = [c["price"] for c in comps if beds and c.get("bedrooms") == beds]
-            if len(same) < config.MIN_COMPS:
-                continue
-            med = median(same)
-            estimate, basis, n = med, "price_same_beds", len(same)
-
-        r["suburb_median"] = round(med, 2)
-        r["comps_count"] = n
-        r["deal_score"] = round((estimate - price) / estimate * 100, 1)
-        r["score_basis"] = basis
+        if r.get("lat") is None:
+            continue
+        group = type_group(r.get("property_type"))
+        nearby = [c for c in recent
+                  if c["id"] != r["id"] and type_group(c.get("property_type")) == group and c.get("lat") is not None
+                  and haversine_km(r["lat"], r["lng"], c["lat"], c["lng"]) <= config.NEARBY_KM]
+        est = _estimate(r, nearby)
+        if est:
+            med, estimate, basis, n = est
+            r.update(wide_median=round(med, 2), wide_comps=n,
+                     wide_score=round((estimate - price) / estimate * 100, 1), wide_basis="nearby_" + basis)
 
 
 def haversine_km(lat1, lng1, lat2, lng2) -> float:

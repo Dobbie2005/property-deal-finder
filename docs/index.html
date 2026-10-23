@@ -86,6 +86,8 @@
     <label>Beds <select id="minBeds"><option value="0">any</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
     <label>Type <select id="ptype"><option value="">any</option><option>house</option><option>townhouse</option><option>apartment</option><option>land</option><option>farm</option></select></label>
     <label><input type="checkbox" id="dropsOnly"> price dropped</label>
+    <label title="When a suburb has too few similar listings, also compare with suburbs within 3 km">Compare with
+      <select id="compare"><option value="suburb">same suburb</option><option value="nearby">+ nearby suburbs</option></select></label>
   </div>
   <button class="themebtn" id="themeBtn" title="Switch between automatic, light and dark">Theme: Auto</button>
 </header>
@@ -117,6 +119,13 @@ function colour(s) {
   if (s >= -5) return "var(--fair)";
   return "var(--high)";
 }
+// Which comparison is switched on: "suburb" (strict) or "nearby" (falls back to suburbs within 3 km)
+let compareMode = "suburb";
+try { compareMode = localStorage.getItem("compare") || "suburb"; } catch (e) {}
+const S = l => compareMode === "nearby"
+  ? { score: l.wide_score, median: l.wide_median, comps: l.wide_comps, basis: l.wide_basis }
+  : { score: l.deal_score, median: l.suburb_median, comps: l.comps_count, basis: l.score_basis };
+
 // How much to trust a score, by how many similar listings it was based on
 const confidence = n => n >= 10 ? "solid" : n >= 6 ? "fair" : "early estimate";
 
@@ -199,12 +208,18 @@ legend.onAdd = () => {
 legend.addTo(map);
 
 function basisText(l) {
-  if (l.deal_score == null) return "Not enough similar listings in this suburb yet to score it.";
-  const dir = l.deal_score >= 0 ? `${Math.abs(l.deal_score).toFixed(0)}% below` : `${Math.abs(l.deal_score).toFixed(0)}% above`;
-  const how = l.score_basis === "price_per_m2"
-    ? `${dir} the median of ${rand(l.suburb_median)}/m² across ${l.comps_count} similar listings in ${esc(l.suburb)}.`
-    : `${dir} the median price of ${l.comps_count} other ${num(l.bedrooms)}-bed listings in ${esc(l.suburb)}.`;
-  return `${how} <span class="meta">(${confidence(l.comps_count)})</span>`;
+  const s = S(l);
+  if (s.score == null) return compareMode === "nearby"
+    ? "Not enough similar listings in this suburb or within 3 km yet to score it."
+    : "Not enough similar listings in this suburb yet. Try “Compare with: + nearby suburbs”.";
+  const dir = s.score >= 0 ? `${Math.abs(s.score).toFixed(0)}% below` : `${Math.abs(s.score).toFixed(0)}% above`;
+  const nearby = (s.basis || "").startsWith("nearby_");
+  const where = nearby ? "within 3 km (nearby suburbs)" : `in ${esc(l.suburb)}`;
+  const what = l.bedrooms ? `${num(l.bedrooms)}-bed listings` : (l.property_type === "land" ? "plots" : "listings");
+  const how = (s.basis || "").endsWith("price_per_m2")
+    ? `${dir} the median of ${rand(s.median)}/m² across ${s.comps} similar listings ${where}.`
+    : `${dir} the median price of ${s.comps} other ${what} ${where}.`;
+  return `${how} <span class="meta">(${nearby ? "nearby comparison, " : ""}${confidence(s.comps)})</span>`;
 }
 
 const photo = (l, cls) => l.image_url
@@ -221,7 +236,8 @@ function popup(l) {
     <div class="meta">${esc(facts)}</div>
     <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · first seen ${new Date(l.first_seen).toLocaleDateString("en-ZA")}</div>
     <div style="margin-top:6px">${basisText(l)}</div>
-    <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open listing ↗</a></div>`;
+    <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open listing ↗</a>
+    ${l.trends_url ? `&nbsp;·&nbsp;<a class="open" href="${esc(l.trends_url)}" target="_blank" rel="noopener" title="Average asking and sold prices for ${esc(l.suburb)} on Property24">Area sold prices ↗</a>` : ""}</div>`;
 }
 
 function filtered() {
@@ -232,12 +248,12 @@ function filtered() {
   const drops = document.getElementById("dropsOnly").checked;
   return all.filter(l =>
     (region === "all" || l.region === region) &&
-    (minScore <= -999 || (l.deal_score != null && l.deal_score >= minScore)) &&
+    (minScore <= -999 || (S(l).score != null && S(l).score >= minScore)) &&
     (!l.price || l.price <= maxPrice) &&
     (!minBeds || (l.bedrooms || 0) >= minBeds) &&
     (!ptype || l.property_type === ptype) &&
     (!drops || (l.first_price && l.price < l.first_price))
-  ).sort((a, b) => (b.deal_score ?? -999) - (a.deal_score ?? -999));
+  ).sort((a, b) => (S(b).score ?? -999) - (S(a).score ?? -999));
 }
 
 function render() {
@@ -246,8 +262,8 @@ function render() {
   const markers = {};
   for (const l of rows) {
     if (l.lat == null) continue;
-    const icon = L.divIcon({ className: "", html: `<div class="pin" style="background:${colour(l.deal_score)}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
-    const m = L.marker([l.lat, l.lng], { icon, score: l.deal_score }).bindPopup(popup(l), { maxWidth: 290 });
+    const icon = L.divIcon({ className: "", html: `<div class="pin" style="background:${colour(S(l).score)}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
+    const m = L.marker([l.lat, l.lng], { icon, score: S(l).score }).bindPopup(popup(l), { maxWidth: 290 });
     cluster.addLayer(m);
     markers[l.id] = m;
   }
@@ -256,7 +272,7 @@ function render() {
     list.innerHTML = `<div class="empty">No listings yet. They appear after the first daily run reads your alert emails.</div>`;
     return;
   }
-  const scored = rows.filter(l => l.deal_score != null).length;
+  const scored = rows.filter(l => S(l).score != null).length;
   list.innerHTML = `<div class="summary">${rows.length} listing${rows.length === 1 ? "" : "s"} shown · ${scored} scored · ${all.length} in total</div>` +
     (rows.length ? rows.slice(0, 300).map(l => `
       <div class="item" data-id="${esc(l.id)}">
@@ -266,9 +282,9 @@ function render() {
           <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
           <div class="meta">${[l.bedrooms && num(l.bedrooms) + " bed", l.floor_m2 && num(l.floor_m2) + " m²", l.property_type].filter(Boolean).join(" · ")}</div>
         </div>
-        <div class="badge" style="background:${colour(l.deal_score)}">${l.deal_score == null ? "–" : (l.deal_score > 0 ? "−" : "+") + Math.abs(l.deal_score).toFixed(0) + "%"}<small>${l.deal_score == null ? "no comps" : l.comps_count + " comps"}</small></div>
+        <div class="badge" style="background:${colour(S(l).score)}">${S(l).score == null ? "–" : (S(l).score > 0 ? "−" : "+") + Math.abs(S(l).score).toFixed(0) + "%"}<small>${S(l).score == null ? "no comps" : S(l).comps + ((S(l).basis || "").startsWith("nearby_") ? " near" : " comps")}</small></div>
       </div>`).join("") : `<div class="empty">Nothing matches these filters. Try “all listings”.</div>`) +
-    `<div class="note">Pins sit on the suburb centre, not the exact house. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected.</div>`;
+    `<div class="note">Pins sit on the suburb centre, not the exact house. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected. For what homes actually sold for, use “Area sold prices” in a listing’s popup.</div>`;
   list.querySelectorAll(".item").forEach(el => el.addEventListener("click", () => {
     const m = markers[el.dataset.id];
     if (m) cluster.zoomToShowLayer(m, () => m.openPopup());
@@ -290,6 +306,13 @@ document.getElementById("tabs").innerHTML = Object.entries(REGIONS)
 document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => setRegion(b.dataset.r)));
 ["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly"].forEach(id =>
   document.getElementById(id).addEventListener("input", render));
+const compareSel = document.getElementById("compare");
+compareSel.value = compareMode === "nearby" ? "nearby" : "suburb";
+compareSel.addEventListener("input", () => {
+  compareMode = compareSel.value;
+  try { localStorage.setItem("compare", compareMode); } catch (e) {}
+  render();
+});
 
 async function load() {
   const rows = [];

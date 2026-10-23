@@ -179,3 +179,33 @@ def test_property24_alert_listing_photos():
     found = {r["id"]: r for r in parse_message(load("p24_real_onshow.eml"))}
     assert found["p24:117703912"]["image_url"] == "https://images.prop24.com/1177039120/Crop318x212"
     assert all(r["image_url"] for r in found.values())
+
+
+def test_nearby_suburbs_fallback_score():
+    now = datetime.now(timezone.utc)
+
+    def row(i, suburb, lat, price, beds=4):
+        return {"id": str(i), "price": price, "bedrooms": beds, "suburb": suburb, "city": "Polokwane",
+                "property_type": "house", "lat": lat, "lng": 29.48, "last_seen": now}
+    rows = [row("x", "Bendor", -23.888, 2_000_000), row(1, "Bendor", -23.888, 3_250_000),
+            row(2, "Fauna Park", -23.898, 2_500_000), row(3, "Flora Park", -23.900, 2_600_000),
+            row(4, "Seshego", -23.849, 600_000)]  # ~4.5 km away: too far to count
+    score_listings(rows, now)
+    x = rows[0]
+    assert x["deal_score"] is None                      # only 1 other 4-bed in Bendor itself
+    assert x["wide_basis"] == "nearby_price_same_beds"
+    assert x["wide_comps"] == 3 and x["wide_median"] == 2_600_000
+    assert x["wide_score"] == round((2_600_000 - 2_000_000) / 2_600_000 * 100, 1)
+
+
+def test_trend_link_from_resolved_listing_url():
+    rows = [{"id": "p24:117748166", "source": "property24",
+             "url": "https://www.property24.com/General/RedirectToListing?listingNumber=P24-117748166"}]
+    import run as r
+    orig = r.RedirectResolver
+    r.RedirectResolver = lambda limit: (lambda url: "https://www.property24.com/for-sale/vierlanden/durbanville/western-cape/9559/117748166")
+    try:
+        assert r.add_trend_links(rows, 10) == 1
+    finally:
+        r.RedirectResolver = orig
+    assert rows[0]["trends_url"] == "https://www.property24.com/durbanville/vierlanden/property-trends/9559"

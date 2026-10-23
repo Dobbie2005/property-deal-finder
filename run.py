@@ -20,13 +20,14 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from dealfinder import config
-from dealfinder.parsers import PRICE_RE, extract_details, match_listing, parse_message
+from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
 from dealfinder.scoring import assign_region, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
 
 COLUMNS = ["id", "source", "url", "title", "property_type", "price", "bedrooms", "bathrooms",
            "floor_m2", "erf_m2", "suburb", "city", "province", "region", "lat", "lng", "last_seen",
-           "suburb_median", "comps_count", "deal_score", "score_basis", "image_url"]
+           "suburb_median", "comps_count", "deal_score", "score_basis", "image_url",
+           "wide_median", "wide_comps", "wide_score", "wide_basis", "trends_url"]
 MANUAL_CSV = Path(__file__).parent / "data" / "manual_listings.csv"
 
 
@@ -80,6 +81,24 @@ def merge_into(existing: dict, new: dict) -> dict:
         if v not in (None, ""):
             merged[k] = v
     return merged
+
+
+def add_trend_links(rows: list[dict], limit: int) -> int:
+    """Find each Property24 listing's suburb number (by following its link once) to link the
+    suburb's area-trends page, which shows average asking and sold prices."""
+    resolver = RedirectResolver(limit)
+    done = 0
+    for r in rows:
+        if r.get("trends_url") or r.get("source") != "property24" or not r.get("url"):
+            continue
+        final = resolver(r["url"])
+        m = P24_RE.search(final or "")
+        if not m:
+            continue
+        sub, city, _prov, sid, _lid = m.groups()
+        r["trends_url"] = f"https://www.property24.com/{city}/{sub}/property-trends/{sid}"
+        done += 1
+    return done
 
 
 def looks_like_listing_email(row: dict) -> bool:
@@ -240,6 +259,7 @@ def main() -> int:
 
     # 4) Score everything and save -----------------------------------------------
     rows = list(all_rows.values())
+    n_trends = add_trend_links(rows, config.MAX_TREND_LOOKUPS_PER_RUN)
     score_listings(rows, now)
     payload = []
     for r in rows:
@@ -287,6 +307,7 @@ def main() -> int:
          + (" ⚠️ getting full: lower KEEP_LISTINGS_DAYS in dealfinder/config.py" if size_mb >= config.DB_WARN_MB else "")
          if size_mb is not None else "- Database size: unknown"),
         f"- Old listings removed: {len(stale)}",
+        f"- Area-trend links added: {n_trends}",
         *notes,
         "",
         "### Top 10 deals right now",
