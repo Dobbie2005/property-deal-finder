@@ -194,8 +194,117 @@ def parse_text(text: str) -> list[dict]:
     return list(found.values())
 
 
+# --- Property24 alert emails ("New Properties", "Price Reduced", "Properties on Show") ---------
+# Each card in the plain-text version looks like:
+#   [image: P24-117748166] <https://www.property24.com/General/RedirectToListing?listingNumber=P24-117748166&...>
+#   R 1 999 000
+#   1 Bedroom Townhouse
+#   Vierlanden
+#   Spectrum Realty
+#   [image: bedroom] 1     [image: bathroom] 1     [image: garage] 1
+# The town isn't printed, but the alert's search (criteriaString) carries Property24's town number.
+
+P24_ALERT_ID_RE = re.compile(r"(?:listingNumber=|\[image:\s*)P24-(\d+)", re.I)
+P24_CRITERIA_RE = re.compile(r"criteriaString=([A-Za-z0-9%+/=]+)")
+P24_TOWNS = {  # Property24 town id -> (town, province)
+    "439": ("Durbanville", "Western Cape"),
+    "441": ("Bellville", "Western Cape"),
+    "454": ("Brackenfell", "Western Cape"),
+    "703": ("Polokwane", "Limpopo"),
+    "708": ("Tzaneen", "Limpopo"),
+}
+P24_TYPES = [  # (words on the card, our property_type)
+    ("townhouse", "townhouse"), ("cluster", "townhouse"), ("duplex", "townhouse"), ("simplex", "townhouse"),
+    ("apartment", "apartment"), ("flat", "apartment"), ("penthouse", "apartment"), ("studio", "apartment"),
+    ("vacant land", "land"), ("land", "land"), ("farm", "farm"), ("smallholding", "farm"), ("plot", "farm"),
+    ("commercial", "commercial"), ("industrial", "commercial"), ("retail", "commercial"), ("office", "commercial"),
+    ("house", "house"),
+]
+P24_SECTION_HEADINGS = {"new properties", "price reduced", "properties on show"}
+
+
+def _p24_town(text: str) -> tuple[Optional[str], Optional[str]]:
+    import base64
+    from urllib.parse import unquote as uq
+    m = P24_CRITERIA_RE.search(text)
+    if not m:
+        return None, None
+    try:
+        decoded = base64.b64decode(uq(m.group(1)) + "==").decode("utf-8", "ignore")
+        cid = re.search(r"cid=(\d+)", uq(uq(decoded)))
+    except Exception:  # noqa: BLE001
+        return None, None
+    return P24_TOWNS.get(cid.group(1), (None, None)) if cid else (None, None)
+
+
+def _p24_type(line: str) -> Optional[str]:
+    low = line.lower()
+    for words, ptype in P24_TYPES:
+        if re.search(rf"\b{words}\b", low):
+            return ptype
+    return None
+
+
+def parse_property24_alert(text: str) -> list[dict]:
+    """Parse the plain-text body of a Property24 alert email."""
+    town, province = _p24_town(text)
+    cards: dict[str, list[str]] = {}
+    current = None
+    for raw_line in text.splitlines():
+        m = P24_ALERT_ID_RE.search(raw_line)
+        if m:
+            current = m.group(1)
+            cards.setdefault(current, [])
+        line = re.sub(r"<https?://[^>]*>|https?://\S+", "", raw_line).strip()
+        if not line or current is None or P24_ALERT_ID_RE.search(line):
+            continue
+        if line.lower() in P24_SECTION_HEADINGS or line.lower().startswith(("view more", "view matching")):
+            current = None  # end of the cards
+            continue
+        cards[current].append(line)
+
+    out = []
+    for lid, lines in cards.items():
+        rec = {"id": f"p24:{lid}", "source": "property24",
+               "url": f"https://www.property24.com/General/RedirectToListing?listingNumber=P24-{lid}",
+               "city": town, "province": province, "price": None, "bedrooms": None, "bathrooms": None,
+               "floor_m2": None, "erf_m2": None, "property_type": None, "suburb": None, "title": None}
+        idx_type = None
+        for i, line in enumerate(lines):
+            if rec["price"] is None and PRICE_RE.search(line):
+                p = _num(PRICE_RE.search(line).group(1))
+                rec["price"] = int(p) if p and p >= config.MIN_PRICE else None
+            elif idx_type is None and rec["price"] is not None and _p24_type(line):
+                idx_type = i
+                rec["property_type"] = _p24_type(line)
+                rec["title"] = line
+                beds = re.match(r"([\d.]+)\s+bedroom", line, re.I)
+                if beds:
+                    rec["bedrooms"] = float(beds.group(1))
+        if idx_type is not None and idx_type + 1 < len(lines):
+            rec["suburb"] = lines[idx_type + 1]
+            for t, p in P24_TOWNS.values():  # e.g. "Polokwane Central" belongs to Polokwane
+                if t.lower() in rec["suburb"].lower() and t != rec["city"]:
+                    rec["city"], rec["province"] = t, p
+        icons = " ".join(lines)
+        for key, word in (("bedrooms", "bedroom"), ("bathrooms", "bathroom")):
+            m = re.search(rf"\[image:\s*{word}\]\s*([\d.]+)", icons, re.I)
+            if m:
+                rec[key] = float(m.group(1))
+        if rec["title"] and rec["suburb"]:
+            rec["title"] = f"{rec['title']} in {rec['suburb']}"
+        if rec["suburb"]:
+            out.append(rec)
+    return out
+
+
 def parse_message(msg: EmailMessage, resolver: Optional[Callable[[str], Optional[str]]] = None) -> list[dict]:
     sender = (msg.get("From") or "").lower()
+    text_part = msg.get_body(preferencelist=("plain",))
+    if "property24" in sender and text_part is not None:
+        text = text_part.get_content()
+        if "RedirectToListing" in text:
+            return parse_property24_alert(text)
     use_resolver = resolver if any(d in sender for d in config.LISTING_SENDER_DOMAINS) else None
     html_part = msg.get_body(preferencelist=("html",))
     if html_part is not None:

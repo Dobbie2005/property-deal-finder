@@ -168,6 +168,8 @@ class Geocoder:
 
     def locate(self, rec: dict) -> tuple[Optional[float], Optional[float]]:
         lat, lng = self._get(rec.get("suburb"), rec.get("city"), rec.get("province"))
+        if lat is None and rec.get("city"):  # the suburb may be filed under a neighbouring town
+            lat, lng = self._get(rec.get("suburb"), None, rec.get("province"))
         if lat is None:  # fall back to the town centre
             lat, lng = self._get(None, rec.get("city"), rec.get("province"))
         return lat, lng

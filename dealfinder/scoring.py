@@ -20,7 +20,7 @@ from . import config
 
 
 def type_group(ptype: Optional[str]) -> str:
-    if ptype in ("apartment", "land", "farm"):
+    if ptype in ("apartment", "land", "farm", "commercial"):
         return ptype
     return "house"  # houses, townhouses and unknown types are compared together
 

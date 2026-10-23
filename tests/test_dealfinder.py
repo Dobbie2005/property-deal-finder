@@ -118,3 +118,34 @@ def test_raw_email_row_is_parsed_like_a_real_email():
     assert {"p24:115000001", "p24:115000003"} <= found
     html_only = run.raw_row_to_message({**row, "plain": ""})
     assert {r["id"] for r in parse_message(html_only)} == found
+
+
+def test_real_property24_new_listing_alert():
+    (r,) = parse_message(load("p24_real_new.eml"))
+    assert r["id"] == "p24:117748166" and r["price"] == 1_999_000
+    assert (r["suburb"], r["city"], r["province"]) == ("Vierlanden", "Durbanville", "Western Cape")
+    assert (r["bedrooms"], r["bathrooms"], r["property_type"]) == (1, 1, "townhouse")
+    assert r["url"] == "https://www.property24.com/General/RedirectToListing?listingNumber=P24-117748166"
+    assert r["title"] == "1 Bedroom Townhouse in Vierlanden"
+
+
+def test_real_property24_price_reduced_alert():
+    (r,) = parse_message(load("p24_real_reduced.eml"))
+    assert (r["price"], r["suburb"], r["city"], r["property_type"], r["bedrooms"]) == \
+        (1_400_000, "Loevenstein", "Bellville", "apartment", 2)
+
+
+def test_real_property24_on_show_alert_with_several_cards():
+    found = {r["id"]: r for r in parse_message(load("p24_real_onshow.eml"))}
+    assert len(found) == 5
+    assert found["p24:117703912"]["suburb"] == "Brackenfell South" and found["p24:117703912"]["city"] == "Brackenfell"
+    assert found["p24:117703912"]["bathrooms"] == 2 and found["p24:117703912"]["price"] == 3_899_000
+    house_no_beds = found["p24:117585844"]
+    assert house_no_beds["property_type"] == "house" and house_no_beds["bedrooms"] is None and house_no_beds["bathrooms"] == 8
+    assert found["p24:117508534"]["property_type"] == "land" and found["p24:117508534"]["price"] == 890_000
+    assert found["p24:116749541"]["property_type"] == "commercial"
+
+
+def test_suburb_named_after_another_town_uses_that_town():
+    found = {r["id"]: r for r in parse_message(load("p24_real_onshow.eml"))}
+    assert (found["p24:116749541"]["city"], found["p24:116749541"]["province"]) == ("Polokwane", "Limpopo")
