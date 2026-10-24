@@ -1,0 +1,16 @@
+name: Security check (temporary)
+on: workflow_dispatch
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: |
+          F=https://oqctqrhxeuqlhopnmsmt.supabase.co/functions/v1/manage-people
+          R=https://oqctqrhxeuqlhopnmsmt.supabase.co/rest/v1/rpc
+          K=sb_publishable_n3s6e7fY50SPVjm6eZgFeA_Lb0262BE
+          echo "no session:   $(curl -s -X POST $F -H "apikey: $K" -H 'Content-Type: application/json' -d '{"action":"list"}' -w ' [%{http_code}]')"
+          echo "fake session: $(curl -s -X POST $F -H "apikey: $K" -H 'Authorization: Bearer abc.def.ghi' -H 'Content-Type: application/json' -d '{"action":"list"}' -w ' [%{http_code}]')"
+          echo "svc_people:   $(curl -s -X POST $R/svc_people -H "apikey: $K" -H 'Content-Type: application/json' -d '{}' -w ' [%{http_code}]')"
+          echo "svc_grant:    $(curl -s -X POST $R/svc_grant -H "apikey: $K" -H 'Content-Type: application/json' -d '{"p_email":"x@y.z","p_admin":true}' -w ' [%{http_code}]')"
+          echo "cors:         $(curl -s -X OPTIONS $F -H 'Origin: https://dobbie2005.github.io' -o /dev/null -w '[%{http_code}]')"
