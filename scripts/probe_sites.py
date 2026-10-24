@@ -7,14 +7,14 @@ import requests
 
 UA = "property-deal-finder/1.0 (personal project; github.com/Dobbie2005/property-deal-finder)"
 SITES = {
-    "privateproperty": ["https://www.privateproperty.co.za/for-sale/limpopo/limpopo-bushveld/polokwane-pietersburg/1219"],
-    "remax": ["https://www.remax.co.za/property-for-sale-south-africa/limpopo/polokwane?page=2"],
-    "chaseveritt": ["https://www.chaseveritt.co.za/results/residential/for-sale/polokwane/"],
-    "seeff": ["https://www.seeff.com/results/residential/for-sale/polokwane/"],
-    "harcourts": ["https://www.harcourts.co.za/results/residential/for-sale/polokwane/"],
-    "century21": ["https://www.century21.co.za/results/residential/for-sale/polokwane/"],
-    "pamgolding": ["https://www.pamgolding.co.za/sitemap.xml"],
+    "pamgolding": ["https://www.pamgolding.co.za/property-search/properties-for-sale-polokwane/1898"],
+    "chaseveritt": ["https://www.chaseveritt.co.za/areas/sitemap.txt"],
+    "harcourts": ["https://www.harcourts.co.za/areas/sitemap.txt"],
+    "seeff": ["https://www.seeff.com/areas/sitemap.txt"],
+    "century21": ["https://www.century21.co.za/areas/sitemap.txt"],
+    "remax": ["https://www.remax.co.za/sitemap.xml"],
 }
+TOWNS_RE = re.compile(r"polokwane|pietersburg|tzaneen|durbanville|naboomspruit|mookgop|mookgoph|bellville|brackenfell", re.I)
 PRICE = re.compile(r"R\s?\d{1,3}(?:[\s ,]\d{3}){1,3}")
 BLOCK = re.compile(r"captcha|cf-chl|cloudflare|access denied|are you a robot|attention required|incapsula|perimeterx|datadome", re.I)
 key = os.environ["SUPABASE_SECRET_KEY"]
@@ -49,7 +49,20 @@ for site, urls in SITES.items():
                 row.update(status=0, body=str(e)[:500])
         save(row)
         print(site, u, ok, row.get("status"), row.get("size"), row.get("prices"))
-        if site == "pamgolding" and row.get("status") == 200:  # find the search pages for our towns in the sitemaps
+        if u.endswith(("sitemap.txt", "sitemap.xml")) and row.get("status") == 200:
+            body = row["body"]
+            lines = re.findall(r"https?://[^\s<]+", body)
+            if site == "remax":  # an index of sitemaps: open the ones about areas / for-sale locations
+                kids = [x for x in lines if re.search(r"sale|area|location|suburb|city", x, re.I)][:12]
+                for k in kids:
+                    time.sleep(2)
+                    try:
+                        lines += re.findall(r"https?://[^\s<]+", requests.get(k, headers={"User-Agent": UA}, timeout=30).text)
+                    except requests.RequestException:
+                        pass
+            hits = sorted({x for x in lines if TOWNS_RE.search(x) and re.search(r"for-sale|results|property-for-sale", x)})
+            save({"url": site + "-area-hits", "site": site, "kind": "hits", "size": len(hits), "body": "\n".join(hits[:400])})
+        if False:  # find the search pages for our towns in the sitemaps
             kids = re.findall(r"<loc>([^<]+)</loc>", row["body"])[:40]
             hits = []
             for k in kids:
