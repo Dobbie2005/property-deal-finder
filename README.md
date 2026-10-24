@@ -132,9 +132,10 @@ floor and plot size from the ad into a listing's popup and press Save; the next 
 
 ## Areas (suburb outlines and sold prices)
 The **Areas** button outlines each suburb that has listings. Outlines come from OpenStreetMap
-(each suburb is looked up once by the listing check). Where OpenStreetMap has no outline the suburb's
-name shows in a dashed box: open it and choose **Draw outline**, or **Adjust outline** to drag the
-edge of one that's wrong. Drawn outlines are never overwritten.
+(each suburb is looked up once by the listing check). Most South African suburbs are only a point on
+OpenStreetMap, so those get a **rough dotted outline** (the ground closer to that suburb than to its
+neighbours). Open the area and choose **Adjust outline** to drag its edge into place, or **Start again**
+to draw it. Your outlines are never overwritten.
 
 Each area also holds **what homes actually sell for** there. Copy figures in from Property24's area
 trends, a Lightstone report or an agent (for example "3-bed houses, sold average R2.4m"). Then:

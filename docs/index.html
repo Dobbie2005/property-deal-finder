@@ -908,6 +908,32 @@ function areaSummary(key) {
       · ${nFig ? nFig + " sold figure" + (nFig === 1 ? "" : "s") + " saved" : "no sold figures yet"}</div>
     <button class="watchbtn" style="margin-top:6px" onclick="dfArea('${esc(key)}')">Area details</button>`;
 }
+// Approximate outline for suburbs OpenStreetMap only has a point for: the area closer to this suburb's
+// centre than to any neighbouring suburb's, at most ~1.3 km out. A starting point to drag into shape.
+function approxOutline(a) {
+  if (a.lat == null) return null;
+  const kx = 111.32 * Math.cos(a.lat * Math.PI / 180), ky = 110.57;     // km per degree
+  const toXY = (lat, lng) => [(lng - a.lng) * kx, (lat - a.lat) * ky];
+  const R = 1.3, n = 28;
+  let poly = Array.from({ length: n }, (_, i) => [R * Math.cos(2 * Math.PI * i / n), R * Math.sin(2 * Math.PI * i / n)]);
+  for (const b of Object.values(areas)) {
+    if (b === a || b.lat == null) continue;
+    const [bx, by] = toXY(b.lat, b.lng), d = Math.hypot(bx, by);
+    if (d < 0.05 || d > 2 * R) continue;
+    // keep the side of the half-way line that's nearer to this suburb: p·b <= |b|²/2
+    const side = pt => pt[0] * bx + pt[1] * by - d * d / 2, out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i], q = poly[(i + 1) % poly.length], sp = side(p), sq = side(q);
+      if (sp <= 0) out.push(p);
+      if ((sp <= 0) !== (sq <= 0)) { const t = sp / (sp - sq); out.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]); }
+    }
+    poly = out;
+    if (poly.length < 3) return null;
+  }
+  const ring = poly.map(([x, y]) => [+(a.lng + x / kx).toFixed(6), +(a.lat + y / ky).toFixed(6)]);
+  return { type: "Polygon", coordinates: [[...ring, ring[0]]] };
+}
+
 function drawAreas() {
   if (!areaLayer) return;
   areaLayer.clearLayers();
@@ -916,6 +942,12 @@ function drawAreas() {
   for (const a of Object.values(areas)) {
     if (region !== "all" && a.region !== region) continue;
     let centre = a.lat != null ? L.latLng(a.lat, a.lng) : null;
+    const guess = !a.boundary && approxOutline(a);
+    if (guess) {
+      const shape = L.geoJSON(guess, { style: () => ({ ...areaStyle(a), weight: 1.4, dashArray: "2 5", fillOpacity: .03 }), pmIgnore: true });
+      shape.bindPopup(() => areaSummary(a.key) + `<div class="meta" style="margin-top:6px">Rough outline (OpenStreetMap has no edge for this suburb). Fix it with Area details → Adjust outline.</div>`, { maxWidth: 260 });
+      shape.addTo(areaLayer);
+    }
     if (a.boundary) {
       const shape = L.geoJSON(a.boundary, { style: () => areaStyle(a), pmIgnore: true });
       shape.on("mouseover", () => shape.setStyle({ fillOpacity: .16 })).on("mouseout", () => shape.setStyle({ fillOpacity: .07 }));
@@ -927,7 +959,7 @@ function drawAreas() {
     const has = areaPrices.some(p => p.area_key === a.key);
     L.marker(centre, { pane: "areaLabels", pmIgnore: true, keyboard: false,
       icon: L.divIcon({ className: "area-label", iconSize: null,
-        html: `<span class="${a.boundary ? "" : "no-outline"}" title="${a.boundary ? "" : "No outline yet: open it to draw one"}">${esc(a.name)}${has ? " <b>R</b>" : ""}</span>` }) })
+        html: `<span class="${a.boundary ? "" : "no-outline"}" title="${a.boundary ? "" : "Rough outline only: open it to adjust"}">${esc(a.name)}${has ? " <b>R</b>" : ""}</span>` }) })
       .bindPopup(() => areaSummary(a.key), { maxWidth: 260 }).addTo(areaLayer);
   }
 }
@@ -980,9 +1012,9 @@ window.dfArea = (key, listingId) => {
   openModal(`
     <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
     <h2>${esc(a.name)}</h2>
-    <p class="meta">${esc(a.city || "")} · ${a.boundary_source === "osm" ? "outline from OpenStreetMap" : a.boundary_source === "drawn" ? "outline drawn by you" : "no outline yet"}</p>
+    <p class="meta">${esc(a.city || "")} · ${a.boundary_source === "osm" ? "outline from OpenStreetMap" : a.boundary_source === "drawn" ? "outline drawn by you" : a.lat != null ? "rough outline only (dotted): adjust it to match the real suburb" : "no outline yet"}</p>
     <div class="popup-actions">
-      <button class="watchbtn" onclick="dfDrawArea('${esc(key)}', '${esc(listingId || "")}')">${a.boundary ? "Adjust outline" : "Draw outline"}</button>
+      <button class="watchbtn" onclick="dfDrawArea('${esc(key)}', '${esc(listingId || "")}')">${a.boundary || a.lat != null ? "Adjust outline" : "Draw outline"}</button>
       <a class="watchbtn" style="text-decoration:none" href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">Find sold prices ↗</a>
     </div>
 
@@ -1065,8 +1097,9 @@ window.dfDrawArea = (key, listingId) => {
   areasOn = true; try { localStorage.setItem("areas", "on"); } catch (e) {}
   drawAreas();
   drawing = { key, area: a, layer: null };
-  if (a.boundary) {
-    drawing.layer = L.geoJSON(a.boundary, { style: { color: "#7048e8", weight: 3, fillOpacity: .12 } }).addTo(map);
+  const start = a.boundary || approxOutline(a);
+  if (start) {
+    drawing.layer = L.geoJSON(start, { style: { color: "#7048e8", weight: 3, fillOpacity: .12 } }).addTo(map);
     map.fitBounds(drawing.layer.getBounds(), { padding: [30, 30] });
     startEditing(drawing.layer);
   } else {
