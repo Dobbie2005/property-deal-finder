@@ -82,7 +82,7 @@ def parse_bank_sales_page(html: str) -> tuple[list[dict], Optional[str]]:
             "bedrooms": _number(props.get("Bedrooms")) if props.get("Bedrooms") else None,
             "bathrooms": _number(props.get("Bathrooms")) if props.get("Bathrooms") else None,
             "floor_m2": feature("Floor size"), "erf_m2": feature("Land size") or feature("Erf size"),
-            "suburb": suburb, "city": locality[1] if len(locality) > 1 else None,
+            "suburb": suburb, "city": re.sub(r"\s*\(.*?\)", "", locality[1]).strip() if len(locality) > 1 else None,
             "province": addr.get("addressRegion"), "address": addr.get("streetAddress"),
             "image_url": photo, "bank": bank,
             "agency": " · ".join(x for x in (bank, agent.get_text(strip=True) if agent else None) if x) or None,
