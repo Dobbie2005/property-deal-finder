@@ -555,7 +555,7 @@ try { baseName = localStorage.getItem("baseMap") || "Streets"; } catch (e) {}
 L.control.layers(baseMaps, null, { position: "topright" }).addTo(map);
 map.on("baselayerchange", e => { try { localStorage.setItem("baseMap", e.name); } catch (err) {} });
 const cluster = L.markerClusterGroup({
-  showCoverageOnHover: false, maxClusterRadius: 40,
+  showCoverageOnHover: false, maxClusterRadius: 40, chunkedLoading: true,
   iconCreateFunction: c => {
     const scores = c.getAllChildMarkers().map(m => m.options.score).filter(s => s != null);
     const best = scores.length ? Math.max(...scores) : null;
@@ -700,18 +700,27 @@ function filtered() {
   ).sort(sorters[sortBy] || sorters.deal);
 }
 
+const pinIcons = {};
+const pinIcon = c => pinIcons[c] ||= L.divIcon({ className: "", html: `<div class="pin" style="background:${c}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
+// Typing in a box redraws once you pause, not on every key
+let renderTimer = null;
+function renderSoon(ms = 180) { clearTimeout(renderTimer); renderTimer = setTimeout(render, ms); }
+
 function render() {
   const rows = filtered();
-  cluster.clearLayers();
-  const markers = markersById = {};
+  const markers = markersById = {}, batch = [];
+  const popupOpts = { maxWidth: 290, autoPanPaddingTopLeft: [10, 70], autoPanPaddingBottomRight: [10, 90],
+    maxHeight: isPhone() ? Math.max(260, map.getSize().y - 190) : null };  // on phones the popup scrolls instead of pushing its pin off-screen
   for (const l of rows) {
     if (l.lat == null) continue;
-    const icon = L.divIcon({ className: "", html: `<div class="pin" style="background:${colour(S(l).score)}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
-    const m = L.marker([l.lat, l.lng], { icon, score: S(l).score }).bindPopup(popup(l), { maxWidth: 290, autoPanPaddingTopLeft: [10, 70], autoPanPaddingBottomRight: [10, 90],
-      maxHeight: isPhone() ? Math.max(260, map.getSize().y - 190) : null });  // on phones the popup scrolls instead of pushing its pin off-screen
-    cluster.addLayer(m);
+    const score = S(l).score;
+    // the popup is only built when it's opened, and pins of the same colour share one icon: much faster with ~1 000 homes
+    const m = L.marker([l.lat, l.lng], { icon: pinIcon(colour(score)), score }).bindPopup(() => popup(l), popupOpts);
+    batch.push(m);
     markers[l.id] = m;
   }
+  cluster.clearLayers();
+  cluster.addLayers(batch);  // all at once (adding one by one was ~20x slower)
   const list = document.getElementById("list");
   if (!all.length) {
     list.innerHTML = `<div class="empty">No listings yet. They appear after the first daily run reads your alert emails.</div>`;
@@ -784,8 +793,9 @@ for (const id of ["maxAge", "sortBy"]) {  // remember these between visits
   try { const saved = localStorage.getItem(id); if (saved && [...el.options].some(o => o.value === saved)) el.value = saved; } catch (e) {}
   el.addEventListener("input", () => { try { localStorage.setItem(id, el.value); } catch (e) {} });
 }
-["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly", "watchedOnly", "motivatedOnly", "maxAge", "sortBy"].forEach(id =>
-  document.getElementById(id).addEventListener("input", render));
+["minScore", "minBeds", "ptype", "dropsOnly", "watchedOnly", "motivatedOnly", "maxAge", "sortBy"].forEach(id =>
+  document.getElementById(id).addEventListener("input", () => render()));
+document.getElementById("maxPrice").addEventListener("input", () => renderSoon(350));
 const compareSel = document.getElementById("compare");
 compareSel.value = ["nearby", "sold"].includes(compareMode) ? compareMode : "suburb";
 compareSel.addEventListener("input", () => {
@@ -1555,6 +1565,7 @@ function soldBox(l) {
 
 // ----- Outlines on the map ----------------------------------------------------------------------
 map.createPane("areas").style.zIndex = 390;        // under listing pins
+var areaCanvas = L.canvas({ pane: "areas", padding: 0.3 });  // outlines drawn on one canvas: smoother than ~100 separate shapes
 map.createPane("areaLabels").style.zIndex = 450;
 areaLayer = L.featureGroup().addTo(map);
 const areaStyle = a => ({ pane: "areas", color: getComputedStyle(document.documentElement).getPropertyValue("--area").trim() || "#7048e8",
@@ -1811,19 +1822,19 @@ function drawAreas() {
   drawTodo();
   if (!areasOn) return;
   const reg = REGIONS[region];
-  if (region !== "all" && reg?.radius_km) L.circle(reg.center, { radius: reg.radius_km * 1000, pane: "areas", interactive: false,
+  if (region !== "all" && reg?.radius_km) L.circle(reg.center, { radius: reg.radius_km * 1000, pane: "areas", renderer: areaCanvas, interactive: false,
     color: getComputedStyle(document.documentElement).getPropertyValue("--muted").trim() || "#888", weight: 1.5, dashArray: "4 6", fill: false }).addTo(areaLayer);
   for (const a of Object.values(areas)) {
     if (a.hidden || a.merged_into || (region !== "all" && a.region !== region)) continue;
     let centre = a.lat != null ? L.latLng(a.lat, a.lng) : null;
     const guess = !a.boundary && approxOutline(a);
     if (guess) {
-      const shape = L.geoJSON(guess, { style: () => ({ ...areaStyle(a), weight: 1.4, dashArray: "2 5", fillOpacity: .03 }), pmIgnore: true });
+      const shape = L.geoJSON(guess, { style: () => ({ ...areaStyle(a), weight: 1.4, dashArray: "2 5", fillOpacity: .03 }), pmIgnore: true, renderer: areaCanvas });
       shape.bindPopup(() => areaSummary(a.key) + `<div class="meta" style="margin-top:6px">Rough outline (OpenStreetMap has no edge for this suburb). Fix it with Area details → Adjust outline.</div>`, { maxWidth: 260 });
       shape.addTo(areaLayer);
     }
     if (a.boundary) {
-      const shape = L.geoJSON(a.boundary, { style: () => areaStyle(a), pmIgnore: true });
+      const shape = L.geoJSON(a.boundary, { style: () => areaStyle(a), pmIgnore: true, renderer: areaCanvas });
       shape.on("mouseover", () => shape.setStyle({ fillOpacity: .16 })).on("mouseout", () => shape.setStyle({ fillOpacity: .07 }));
       shape.bindPopup(() => areaSummary(a.key), { maxWidth: 260 });
       shape.addTo(areaLayer);
