@@ -22,7 +22,7 @@ from pathlib import Path
 from dealfinder import config
 from dealfinder.details import ListingPageReader, parse_property24_page
 from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
-from dealfinder.areas import OutlineFinder, area_pins, place_pins_in_areas, update_areas
+from dealfinder.areas import OutlineFinder, apply_merges, area_pins, place_pins_in_areas, update_areas
 from dealfinder import banksales, digest
 from dealfinder.signals import seller_flags, update_price_history
 from dealfinder.scoring import assign_region, mark_duplicates, norm, score_listings
@@ -33,7 +33,8 @@ COLUMNS = ["id", "source", "url", "title", "property_type", "price", "bedrooms",
            "suburb_median", "comps_count", "deal_score", "score_basis", "image_url",
            "wide_median", "wide_comps", "wide_score", "wide_basis", "trends_url",
            "address", "pin_level", "duplicate_of", "levies", "rates", "details_checked",
-           "price_history", "price_drops", "agency", "flags", "bank", "description", "status"]
+           "price_history", "price_drops", "agency", "flags", "bank", "description", "status",
+           "listed_suburb", "listed_city"]
 MANUAL_CSV = Path(__file__).parent / "data" / "manual_listings.csv"
 
 
@@ -345,9 +346,11 @@ def main() -> int:
 
     # Suburb outlines (drawn on the map, or official) decide where address-less pins go
     try:
-        pins = area_pins(db.select_all("areas", order="key", select="key,region,boundary,hidden"))
+        area_rows = db.select_all("areas", order="key", select="key,name,city,region,boundary,hidden,merged_into")
     except Exception:  # noqa: BLE001  (before the areas table existed)
-        pins = {}
+        area_rows = []
+    pins = area_pins(area_rows)
+    n_merged = apply_merges(all_rows.values(), area_rows)  # suburbs you merged into another
     for r in all_rows.values():
         if r.get("pin_level") == "area":  # the outline may have changed or been deleted: work it out again
             r["pin_level"] = None
@@ -454,6 +457,7 @@ def main() -> int:
         f"- Listings in database: {len(rows)} ({sum(r.get('deal_score') is not None for r in rows)} with a score)",
         f"- New suburbs located on the map: {len(geo.new_rows)}",
         f"- Pins placed inside suburb outlines: {n_area_pins}",
+        f"- Listings moved into a suburb you merged them into: {n_merged}",
         (f"- Database size: {size_mb:.0f} MB of the free 500 MB"
          + (" ⚠️ getting full: lower KEEP_LISTINGS_DAYS in dealfinder/config.py" if size_mb >= config.DB_WARN_MB else "")
          if size_mb is not None else "- Database size: unknown"),

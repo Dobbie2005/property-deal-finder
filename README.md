@@ -181,3 +181,14 @@ automatically for them; sold ones are hidden.
 
 **Auctions** and anything else: every email in the bot inbox is copied over. If one looks like listings but can't be read (a new site),
 the run summary says so; share an example and a reader for it can be added.
+
+## Who can change what
+Only the admin (Chris; the list is `private.admins` in Supabase) can draw, adjust, rename, merge, delete or
+restore areas, take suburbs off the to-do list, and add or remove email recipients. The database enforces
+this, not just the map. Everyone signed in can use the shortlist, notes, deals, seller tags, floor sizes and
+the calculator, add sold figures (and remove their own), and change their own email settings.
+
+**Rename** changes the name shown on the map; listings stay matched to the suburb they're advertised in.
+**Merge into…** is for suburbs that aren't real (e.g. "Kuils River South"): its listings count as the other
+suburb everywhere, future listings advertised under that name go there too, and its outline and sold figures
+can move across. Undo it under Outlines to do → Merged suburbs.

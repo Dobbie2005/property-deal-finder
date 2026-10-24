@@ -625,3 +625,25 @@ def test_read_bank_sales_follows_next_pages_and_stops_when_blocked():
     assert len(found) == 6 and notes == ["Cape Town: 4", "Limpopo: 2"]
     found, notes = banksales.read_bank_sales(_FakeReader(pages, block_after=1))
     assert len(found) == 2 and notes[-1].startswith("⚠️")
+
+
+def test_merged_suburbs_move_listings_and_undo_restores_them():
+    areas_rows = [
+        {"key": "kuilsriver/kuilsriversouth", "name": "Kuils River South", "city": "Kuils River", "merged_into": "kuilsriver/kuilsriver"},
+        {"key": "kuilsriver/kuilsriver", "name": "Kuils River", "city": "Kuils River", "boundary": _sq(-33.93, 18.68, 0.02)},
+    ]
+    r = {"suburb": "Kuils River South", "city": "Kuils River", "lat": -33.95, "lng": 18.70, "pin_level": "suburb"}
+    addr = {"suburb": "Kuils River South", "city": "Kuils River", "lat": -33.951, "lng": 18.701, "pin_level": "address"}
+    assert areas_mod.apply_merges([r, addr], areas_rows) == 2
+    assert (r["suburb"], r["listed_suburb"], r["lat"], r["pin_level"]) == ("Kuils River", "Kuils River South", None, None)
+    assert addr["suburb"] == "Kuils River" and addr["lat"] == -33.951  # a street address stays put
+    # next run: a new alert email says "Kuils River South" again -> still merged, nothing re-geocoded
+    r.update(suburb="Kuils River South", lat=-33.93, lng=18.69, pin_level="area")
+    areas_mod.apply_merges([r], areas_rows)
+    assert r["suburb"] == "Kuils River"
+    # undo the merge
+    areas_rows[0]["merged_into"] = None
+    areas_mod.apply_merges([r], areas_rows)
+    assert (r["suburb"], r["listed_suburb"], r["lat"]) == ("Kuils River South", None, None)
+    # merged areas never give pins
+    assert set(areas_mod.area_pins(areas_rows + [{**areas_rows[1], "key": "x/y", "merged_into": "kuilsriver/kuilsriver"}])) == {"kuilsriver/kuilsriver"}

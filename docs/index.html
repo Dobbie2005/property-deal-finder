@@ -344,6 +344,7 @@ const rand = v => v ? "R " + Math.round(v).toLocaleString("en-ZA").replace(/,/g,
 const num = v => v == null ? null : +(+v).toFixed(1);
 
 let all = [], twins = {}, notes = {}, markersById = {}, region = "all", user = null, areas = {}, areaPrices = [];
+let admin = false;  // only the admin can change outlines, names and who gets emails (the database enforces this too)
 const SITE = { property24: "Property24", privateproperty: "Private Property", facebook: "Facebook", manual: "your list" };
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
@@ -436,6 +437,7 @@ function popup(l) {
     <div class="price" style="font-size:15px">${rand(l.price)}</div>${drop}${chips(l)}
     <div class="meta">${esc(facts)}</div>
     ${l.address ? `<div class="meta">${esc(l.address)}</div>` : ""}
+    ${l.listed_suburb && normName(l.listed_suburb) !== normName(l.suburb) ? `<div class="meta">Advertised as ${esc(l.listed_suburb)} (merged into ${esc(l.suburb)})</div>` : ""}
     ${l.description ? `<div class="meta" style="margin-top:4px;font-style:italic">“${esc(l.description)}”</div>` : ""}
     <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · listed ${ageText(l.first_seen)}${
       daysSince(l.last_seen) < daysSince(l.first_seen) ? ` · last in an alert ${ageText(l.last_seen)}` : ""}</div>
@@ -450,7 +452,7 @@ function popup(l) {
     <div class="popup-actions">
       <button class="watchbtn ${notes[l.id]?.watched ? "on" : ""}" onclick="dfToggleWatch('${esc(l.id)}')">${notes[l.id]?.watched ? "★ On shortlist" : "☆ Shortlist"}</button>
       <button class="watchbtn" onclick="dfFlip('${esc(l.id)}')">Flip calculator</button>
-      <button class="watchbtn" onclick="dfArea('${esc(areaKeyOf(l))}', '${esc(l.id)}')">${esc(l.suburb)} area</button>
+      <button class="watchbtn" onclick="dfArea('${esc(areaKeyOf(l))}', '${esc(l.id)}')">${esc(areaName(areas[areaKeyOf(l)]) || l.suburb)} area</button>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
       <label class="meta">Deal stage <select class="stagesel" onchange="dfSetStage('${esc(l.id)}', this.value)">
@@ -701,8 +703,13 @@ sb.auth.onAuthStateChange(async (event, session) => {
   const changed = (user?.id || null) !== (session?.user?.id || null);
   user = session?.user || null;
   showAuth(!signedIn, "Sign in to see the listings.");
-  if (signedIn && changed) loadAndShow();
-  if (!signedIn) { all = []; notes = {}; areas = {}; areaPrices = []; render(); drawAreas(); }
+  if (signedIn && changed) {
+    const { data } = await sb.rpc("is_admin");
+    admin = data === true;
+    document.body.classList.toggle("is-admin", admin);
+    loadAndShow();
+  }
+  if (!signedIn) { admin = false; all = []; notes = {}; areas = {}; areaPrices = []; render(); drawAreas(); }
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -741,7 +748,8 @@ window.dfClose = closeModal;
 
 async function openSettings() {
   const { data: rcps, error } = await sb.from("alert_recipients").select("*").order("created_at");
-  const rows = (rcps || []).map(r => `
+  const mine = r => r.email === (user?.email || "").toLowerCase();
+  const rows = (rcps || []).filter(r => admin || mine(r)).map(r => `
     <div class="rcp" data-id="${esc(r.id)}">
       <div><b>${esc(r.email)}</b>
         <div class="opts">
@@ -751,7 +759,7 @@ async function openSettings() {
           <label><input type="checkbox" data-k="active" ${r.active ? "checked" : ""}> instant deal alerts</label>
           <label><input type="checkbox" data-k="weekly_digest" ${r.weekly_digest ? "checked" : ""}> weekly summary (Mondays)</label>
         </div></div>
-      <button class="watchbtn" data-del="${esc(r.id)}">Remove</button>
+      ${admin ? `<button class="watchbtn" data-del="${esc(r.id)}">Remove</button>` : ""}
     </div>`).join("");
   openModal(`
     <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
@@ -760,7 +768,8 @@ async function openSettings() {
     <p class="meta"><b>Instant deal alerts</b>: when a new listing (or a price drop) is at least this much below similar homes, an email within 15–30 minutes.
       <b>Weekly summary</b>: every Monday morning, the week's best new deals, price drops, motivated sellers and your deals, per area.</p>
     ${error ? `<p class="msg err">${esc(error.message)}</p>` : rows || `<p class="meta">No one gets alerts yet.</p>`}
-    <form id="rcpAdd" style="display:flex;gap:8px;margin-top:12px">
+    ${admin ? "" : `<p class="meta">These are your own email settings. Chris manages who else gets emails.</p>`}
+    <form id="rcpAdd" style="display:${admin ? "flex" : "none"};gap:8px;margin-top:12px">
       <input type="email" id="rcpEmail" placeholder="name@gmail.com" required style="flex:1">
       <button class="primary small" type="submit">Add</button>
     </form>
@@ -1101,6 +1110,7 @@ $("viewDeals").addEventListener("click", dfDeals);
 // ---------------------------------------------------------------------------------------------
 var areaLayer, areasOn = false;  // var: drawAreas() may be called before this part of the page has run
 const areaKeyOf = l => normName(l.city) + "/" + normName(l.suburb);  // same rule as the daily job
+const areaName = a => (a && (a.display_name || a.name)) || "";
 const TYPE_WORD = { house: "houses", townhouse: "townhouses", apartment: "apartments", land: "plots", farm: "farms" };
 const short = v => v >= 1e6 ? "R" + (v / 1e6).toFixed(v >= 1e7 ? 1 : 2).replace(/\.?0+$/, "") + "m" : "R" + Math.round(v / 1000) + "k";
 const monthText = d => d ? new Date(d).toLocaleDateString("en-ZA", { month: "short", year: "numeric" }) : "";
@@ -1131,7 +1141,7 @@ function soldFigure(l) {
 }
 function soldText(f) {
   const age = f.p.as_of && daysSince(f.p.as_of) > 365 ? " ⚠️ over a year old" : "";
-  return `what ${figLabel(f.p, f.p.area_key && areas[f.p.area_key]?.name)} sell for: ${rand(f.value)}${f.how ? " (" + esc(f.how) + ")" : ""}`
+  return `what ${figLabel(f.p, f.p.area_key && areaName(areas[f.p.area_key]))} sell for: ${rand(f.value)}${f.how ? " (" + esc(f.how) + ")" : ""}`
     + ` <span class="meta">— your figure${f.p.source ? ", " + esc(f.p.source) : ""}${f.p.as_of ? ", " + monthText(f.p.as_of) : ""}${age}</span>`;
 }
 function soldBox(l) {
@@ -1154,7 +1164,7 @@ function areaSummary(key) {
   const a = areas[key];
   const ls = all.filter(l => areaKeyOf(l) === key && l.price);
   const nFig = areaPrices.filter(p => p.area_key === key).length;
-  return `<b>${esc(a.name)}</b> <span class="meta">${esc(a.city || "")}</span>
+  return `<b>${esc(areaName(a))}</b> <span class="meta">${esc(a.city || "")}</span>
     <div class="meta">${ls.length} listing${ls.length === 1 ? "" : "s"}${ls.length ? ", median asking " + short(quantile(ls.map(l => +l.price), .5)) : ""}
       · ${nFig ? nFig + " sold figure" + (nFig === 1 ? "" : "s") + " saved" : "no sold figures yet"}</div>
     <button class="watchbtn" style="margin-top:6px" onclick="dfArea('${esc(key)}')">Area details</button>`;
@@ -1168,7 +1178,7 @@ function approxOutline(a) {
   const R = 1.3, n = 28;
   let poly = Array.from({ length: n }, (_, i) => [R * Math.cos(2 * Math.PI * i / n), R * Math.sin(2 * Math.PI * i / n)]);
   for (const b of Object.values(areas)) {
-    if (b === a || b.lat == null || b.hidden) continue;
+    if (b === a || b.lat == null || b.hidden || b.merged_into) continue;
     const [bx, by] = toXY(b.lat, b.lng), d = Math.hypot(bx, by);
     if (d < 0.05 || d > 2 * R) continue;
     // keep the side of the half-way line that's nearer to this suburb: p·b <= |b|²/2
@@ -1201,25 +1211,94 @@ function drawTodo() {
   if (!areasOn) return;
   const inRegion = Object.values(areas).filter(a => region === "all" || a.region === region);
   const deleted = inRegion.filter(a => a.hidden).sort((x, y) => x.name.localeCompare(y.name));
-  const todo = inRegion.filter(a => !a.hidden && !a.skip_outline);
+  const merged = inRegion.filter(a => a.merged_into && !a.hidden).sort((x, y) => x.name.localeCompare(y.name));
+  const todo = inRegion.filter(a => !a.hidden && !a.skip_outline && !a.merged_into);
   const none = todo.filter(a => !a.boundary && a.lat == null).sort((x, y) => x.name.localeCompare(y.name));
   const rough = todo.filter(a => !a.boundary && a.lat != null).sort((x, y) => x.name.localeCompare(y.name));
-  const item = (a, tag) => `<li><button class="areabtn" data-area="${esc(a.key)}">${esc(a.name)}</button> <span class="meta">${tag}</span>
-    <button class="xbtn" data-skip="${esc(a.key)}" title="Take ${esc(a.name)} off this list (it stays on the map)" aria-label="Take off the list">✕</button></li>`;
+  const item = (a, tag) => `<li><button class="areabtn" data-area="${esc(a.key)}">${esc(areaName(a))}</button> <span class="meta">${tag}</span>
+    ${admin ? `<button class="xbtn" data-skip="${esc(a.key)}" title="Take ${esc(areaName(a))} off this list (it stays on the map)" aria-label="Take off the list">✕</button>` : ""}</li>`;
   box.innerHTML = `<details ${todoOpen ? "open" : ""}><summary>Outlines to do (${none.length + rough.length})</summary>
-    <div class="meta" style="max-width:230px;margin-bottom:4px">Tap a suburb, then <b>Draw outline</b> or <b>Adjust outline</b>.</div>
+    <div class="meta" style="max-width:230px;margin-bottom:4px">${admin ? "Tap a suburb, then <b>Draw outline</b> or <b>Adjust outline</b>." : "Suburbs Chris still needs to outline."}</div>
     <ul class="todolist">${none.map(a => item(a, "no outline")).join("")}${rough.map(a => item(a, "rough")).join("")}</ul>
     ${none.length + rough.length ? "" : `<div class="meta">All done 🎉</div>`}
-    <button class="watchbtn" id="addAreaBtn" style="margin-top:6px">＋ Add a suburb</button>
-    ${deleted.length ? `<details style="margin-top:8px"><summary class="meta" style="color:var(--muted)">Deleted areas (${deleted.length})</summary>
+    ${admin ? `<button class="watchbtn" id="addAreaBtn" style="margin-top:6px">＋ Add a suburb</button>` : ""}
+    ${admin && merged.length ? `<details style="margin-top:8px"><summary class="meta" style="color:var(--muted)">Merged suburbs (${merged.length})</summary>
+      <ul class="todolist">${merged.map(a => `<li>${esc(areaName(a))} → ${esc(areaName(areas[a.merged_into]))} <button class="areabtn" data-unmerge="${esc(a.key)}">Undo</button></li>`).join("")}</ul></details>` : ""}
+    ${admin && deleted.length ? `<details style="margin-top:8px"><summary class="meta" style="color:var(--muted)">Deleted areas (${deleted.length})</summary>
       <ul class="todolist">${deleted.map(a => `<li>${esc(a.name)} <button class="areabtn" data-restore="${esc(a.key)}">Restore</button></li>`).join("")}</ul></details>` : ""}
     </details>`;
   box.querySelector("details").addEventListener("toggle", e => { todoOpen = e.target.open; });
   box.querySelectorAll("[data-area]").forEach(b => b.addEventListener("click", () => dfArea(b.dataset.area)));
   box.querySelectorAll("[data-skip]").forEach(b => b.addEventListener("click", () => setAreaFlags(b.dataset.skip, { skip_outline: true })));
   box.querySelectorAll("[data-restore]").forEach(b => b.addEventListener("click", () => setAreaFlags(b.dataset.restore, { hidden: false })));
-  $("addAreaBtn").addEventListener("click", openAddArea);
+  $("addAreaBtn")?.addEventListener("click", openAddArea);
+  box.querySelectorAll("[data-unmerge]").forEach(b => b.addEventListener("click", () => setAreaFlags(b.dataset.unmerge, { merged_into: null })));
 }
+window.dfRenameArea = key => {
+  const a = areas[key];
+  openModal(`
+    <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
+    <h2>Rename ${esc(areaName(a))}</h2>
+    <p class="meta">Changes the name shown on the map. Listings still say “${esc(a.name)}” and stay matched to it. Leave empty to go back to that name.</p>
+    <form id="renameForm"><input type="text" id="rn_name" value="${esc(a.display_name || "")}" placeholder="${esc(a.name)}">
+      <button class="primary" type="submit">Save name</button><p class="msg" id="rn_msg"></p></form>`);
+  $("rn_name").focus();
+  $("renameForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const v = $("rn_name").value.trim();
+    if (await setAreaFlags(key, { display_name: v && v !== a.name ? v : null })) dfArea(key);
+  });
+};
+// Merge: e.g. "Kuils River South" isn't a real suburb, so its listings should count as "Kuils River"
+window.dfMergeArea = key => {
+  const a = areas[key];
+  const options = Object.values(areas).filter(b => b.key !== key && !b.hidden && !b.merged_into && b.region === a.region)
+    .sort((x, y) => areaName(x).localeCompare(areaName(y)));
+  openModal(`
+    <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
+    <h2>Merge ${esc(areaName(a))} into…</h2>
+    <p class="meta">Its listings will count as the other suburb everywhere: scores, pins, sold figures and the weekly summary. Future listings
+      advertised as “${esc(a.name)}” go there automatically. You can undo it under Outlines to do → Merged suburbs.</p>
+    <form id="mergeForm">
+      <label class="field">Merge into an existing suburb</label>
+      <select id="mg_target" style="width:100%;font:inherit;font-size:16px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">
+        <option value="">— or type a new one below —</option>${options.map(b => `<option value="${esc(b.key)}">${esc(areaName(b))}${b.city ? " (" + esc(b.city) + ")" : ""}</option>`).join("")}</select>
+      <label class="field">…or a new suburb named</label><input type="text" id="mg_new" placeholder="e.g. Kuils River">
+      ${a.boundary ? `<label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="mg_outline" checked>
+        Add ${esc(areaName(a))}'s outline to it</label>` : ""}
+      <button class="primary" type="submit">Merge</button><p class="msg" id="mg_msg"></p>
+    </form>`);
+  $("mergeForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const err = t => { $("mg_msg").className = "msg err"; $("mg_msg").textContent = t; };
+    let tkey = $("mg_target").value;
+    const newName = $("mg_new").value.trim();
+    if (!tkey && !newName) return err("Choose a suburb or type a new name.");
+    if (!tkey) {
+      tkey = normName(a.city) + "/" + normName(newName);
+      if (tkey === key) return err("That's the same suburb.");
+      if (!areas[tkey]) {
+        const row = { key: tkey, name: newName, city: a.city, region: a.region, updated_by: user?.email || null };
+        const { error } = await sb.from("areas").insert(row);
+        if (error) return err(error.message);
+        areas[tkey] = { ...row, updated_at: new Date().toISOString() };
+      }
+    }
+    const t = areas[tkey];
+    if ($("mg_outline")?.checked && a.boundary) {
+      const parts = g => !g ? [] : g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
+      const polys = [...parts(t.boundary), ...parts(a.boundary)];
+      const boundary = polys.length === 1 ? { type: "Polygon", coordinates: polys[0] } : { type: "MultiPolygon", coordinates: polys };
+      if (!(await setAreaFlags(tkey, { boundary, boundary_source: "drawn", updated_by: user?.email || null, updated_at: new Date().toISOString() }))) return;
+    }
+    if (!(await setAreaFlags(key, { merged_into: tkey }))) return;
+    const { error } = await sb.from("area_prices").update({ area_key: tkey }).eq("area_key", key);  // its sold figures move too
+    if (!error) areaPrices.forEach(p => { if (p.area_key === key) p.area_key = tkey; });
+    render(); drawAreas();
+    dfArea(tkey);
+  });
+};
+
 async function setAreaFlags(key, patch) {
   const { error } = await sb.from("areas").update(patch).eq("key", key);
   if (error) { alert("Couldn't save: " + error.message); return false; }
@@ -1234,7 +1313,7 @@ window.dfDeleteArea = async key => {
   if (!a) return;
   const n = all.filter(l => areaKeyOf(l) === key).length;
   const figs = areaPrices.filter(p => p.area_key === key).length;
-  const msg = `Delete ${a.name}?\n\n` + (n
+  const msg = `Delete ${areaName(a)}?\n\n` + (n
     ? `It still has ${n} listing${n === 1 ? "" : "s"}, which stay on the map. The area, its outline${figs ? " and its " + figs + " sold figure" + (figs === 1 ? "" : "s") : ""} are hidden; you can bring them back under Outlines to do → Deleted areas.`
     : `Its outline${figs ? " and " + figs + " sold figure" + (figs === 1 ? "" : "s") : ""} will be removed for good.`);
   if (!confirm(msg)) return;
@@ -1303,8 +1382,17 @@ function insidePoint(geo) {
 // Listings without a street address sit in the middle of their suburb's outline
 function applyAreaPins() {
   for (const l of [...all, ...Object.values(twins).flat()]) {
-    l._orig ||= { lat: l.lat, lng: l.lng, pin_level: l.pin_level, region: l.region };
+    l._orig ||= { lat: l.lat, lng: l.lng, pin_level: l.pin_level, region: l.region, suburb: l.suburb, city: l.city, listed_suburb: l.listed_suburb };
     Object.assign(l, l._orig);
+    // a suburb merged into another one (follow the chain, e.g. Kuils River South -> Kuils River)
+    let mk = areaKeyOf(l), hops = 0;
+    while (areas[mk]?.merged_into && hops++ < 5) mk = areas[mk].merged_into;
+    if (hops && areas[mk]) {
+      const t = areas[mk];
+      l.listed_suburb = l.listed_suburb || l.suburb;
+      l.suburb = t.name; l.city = t.city || l.city;
+      if (l.pin_level !== "address") { l.lat = l._orig.lat; l.lng = l._orig.lng; }
+    }
     if (l.pin_level === "address" || !l.suburb) continue;
     const a = areas[areaKeyOf(l)];
     if (!a || a.hidden || !a.boundary) continue;
@@ -1322,7 +1410,7 @@ function drawAreas() {
   drawTodo();
   if (!areasOn) return;
   for (const a of Object.values(areas)) {
-    if (a.hidden || (region !== "all" && a.region !== region)) continue;
+    if (a.hidden || a.merged_into || (region !== "all" && a.region !== region)) continue;
     let centre = a.lat != null ? L.latLng(a.lat, a.lng) : null;
     const guess = !a.boundary && approxOutline(a);
     if (guess) {
@@ -1341,7 +1429,7 @@ function drawAreas() {
     const has = areaPrices.some(p => p.area_key === a.key);
     L.marker(centre, { pane: "areaLabels", pmIgnore: true, keyboard: false,
       icon: L.divIcon({ className: "area-label", iconSize: null,
-        html: `<span class="${a.boundary ? "" : "no-outline"}" title="${a.boundary ? "" : "Rough outline only: open it to adjust"}">${esc(a.name)}${has ? " <b>R</b>" : ""}</span>` }) })
+        html: `<span class="${a.boundary ? "" : "no-outline"}" title="${a.boundary ? "" : "Rough outline only: open it to adjust"}">${esc(areaName(a))}${has ? " <b>R</b>" : ""}</span>` }) })
       .bindPopup(() => areaSummary(a.key), { maxWidth: 260 }).addTo(areaLayer);
   }
 }
@@ -1388,23 +1476,28 @@ window.dfArea = (key, listingId) => {
   const figRows = figs.map(p => `
     <div class="rcp"><div><b>${figLabel(p)}</b>: ${p.price ? rand(p.price) : ""}${p.price && p.price_per_m2 ? " · " : ""}${p.price_per_m2 ? rand(p.price_per_m2) + "/m²" : ""}
       <div class="meta">${[p.source, p.as_of && monthText(p.as_of), p.added_by && "added by " + p.added_by.split("@")[0]].filter(Boolean).map(esc).join(" · ")}${p.note ? "<br>" + esc(p.note) : ""}</div></div>
-      <button class="watchbtn" data-delfig="${esc(p.id)}">Remove</button></div>`).join("");
+      ${admin || p.added_by === user?.email ? `<button class="watchbtn" data-delfig="${esc(p.id)}">Remove</button>` : ""}</div>`).join("");
   const q = encodeURIComponent(`Property24 ${a.name} ${a.city || ""} property trends sold prices`);
   const now = new Date();
   openModal(`
     <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
-    <h2>${esc(a.name)}</h2>
-    <p class="meta">${esc(a.city || "")} · ${a.boundary_source === "official" ? "official boundary: " + esc(a.official_name || "") : a.boundary_source === "osm" ? "outline from OpenStreetMap" : a.boundary_source === "drawn" ? "outline drawn by you" : a.lat != null ? "rough outline only (dotted): adjust it to match the real suburb" : "no outline yet"}</p>
+    <h2>${esc(areaName(a))}</h2>
+    <p class="meta">${esc(a.city || "")} · ${a.boundary_source === "official" ? "official boundary: " + esc(a.official_name || "") : a.boundary_source === "osm" ? "outline from OpenStreetMap" : a.boundary_source === "drawn" ? "outline drawn by you" : a.lat != null ? "rough outline only (dotted)" + (admin ? ": adjust it to match the real suburb" : "") : "no outline yet"}</p>
     <div class="popup-actions">
-      <button class="watchbtn" onclick="dfDrawArea('${esc(key)}', '${esc(listingId || "")}')">${a.boundary || a.lat != null ? "Adjust outline" : "Draw outline"}</button>
+      ${admin ? `<button class="watchbtn" onclick="dfDrawArea('${esc(key)}', '${esc(listingId || "")}')">${a.boundary || a.lat != null ? "Adjust outline" : "Draw outline"}</button>
+        ${areas[key] ? `<button class="watchbtn" onclick="dfRenameArea('${esc(key)}')">Rename</button>
+          <button class="watchbtn" onclick="dfMergeArea('${esc(key)}')">Merge into…</button>` : ""}` : ""}
       <a class="watchbtn" style="text-decoration:none" href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">Find sold prices ↗</a>
-      ${!areas[key] ? "" : a.hidden ? `<button class="watchbtn" onclick="dfRestoreArea('${esc(key)}')">Restore area</button>`
+      ${!areas[key] || !admin ? "" : a.hidden ? `<button class="watchbtn" onclick="dfRestoreArea('${esc(key)}')">Restore area</button>`
         : `<button class="watchbtn danger" onclick="dfDeleteArea('${esc(key)}')">Delete area</button>`}
     </div>
+    ${a.display_name && a.display_name !== a.name ? `<p class="meta">Listings call it “${esc(a.name)}”.</p>` : ""}
+    ${a.merged_into ? `<p class="msg err">Merged into ${esc(areaName(areas[a.merged_into]))}: its listings count as ${esc(areaName(areas[a.merged_into]))}.</p>` : ""}
+    ${!admin ? `<p class="meta">Only Chris can change outlines and names.</p>` : ""}
     ${a.hidden ? `<p class="msg err">This area is deleted: it isn't shown on the map and its sold figures don't count.</p>` : ""}
 
     <h3>What homes sell for here</h3>
-    <p class="meta">Copy these from Property24's area trends (“Find sold prices”), a Lightstone report or an agent. Listings in ${esc(a.name)} are then compared with them.</p>
+    <p class="meta">Copy these from Property24's area trends (“Find sold prices”), a Lightstone report or an agent. Listings in ${esc(areaName(a))} are then compared with them.</p>
     ${figRows || `<p class="meta"><i>None saved yet.</i></p>`}
     <form class="figform" id="figForm" style="margin-top:10px">
       <div><label class="field">Type</label><select id="f_type">
@@ -1458,13 +1551,13 @@ function stopDrawing() {
 }
 function startEditing(layer) {
   layer.eachLayer ? layer.eachLayer(x => x.pm && x.pm.enable({ allowSelfIntersection: false })) : layer.pm.enable({ allowSelfIntersection: false });
-  drawBar(`<b>${esc(drawing.area.name)}</b>: drag the white points to move the edge${isPhone() ? "" : " (drag a faint middle point to add a corner, right-click a point to remove it)"}.
+  drawBar(`<b>${esc(areaName(drawing.area))}</b>: drag the white points to move the edge${isPhone() ? "" : " (drag a faint middle point to add a corner, right-click a point to remove it)"}.
     <div class="btns"><button class="primary small" onclick="dfSaveOutline()">Save outline</button>
     <button class="watchbtn" onclick="dfRedraw()">Start again</button><button class="watchbtn" onclick="dfStopDrawing()">Cancel</button></div>`);
 }
 function startNewShape() {
   if (drawing.layer) { map.removeLayer(drawing.layer); drawing.layer = null; }
-  drawBar(`<b>${esc(drawing.area.name)}</b>: ${drawing.area.lat == null ? "find the suburb (switch to Satellite top-right if it helps), then " : ""}${isPhone() ? "tap" : "click"} around its edge, and ${isPhone() ? "tap" : "click"} the first point again to finish.
+  drawBar(`<b>${esc(areaName(drawing.area))}</b>: ${drawing.area.lat == null ? "find the suburb (switch to Satellite top-right if it helps), then " : ""}${isPhone() ? "tap" : "click"} around its edge, and ${isPhone() ? "tap" : "click"} the first point again to finish.
     <div class="btns"><button class="watchbtn" onclick="dfStopDrawing()">Cancel</button></div>`);
   map.off("pm:create");
   map.once("pm:create", e => { drawing.layer = e.layer; startEditing(e.layer); });

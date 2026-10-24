@@ -202,7 +202,7 @@ def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime,
     areas = collect_areas(rows)
     existing = {a["key"]: a for a in db.select_all(
         "areas", order="key",
-        select="key,name,city,region,lat,lng,boundary_source,boundary_checked_at,official_checked_at,hidden")}
+        select="key,name,city,region,lat,lng,boundary_source,boundary_checked_at,official_checked_at,hidden,merged_into")}
     if areas:
         db.upsert("areas", list(areas.values()))  # names, regions and centres only
 
@@ -216,7 +216,7 @@ def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime,
     # 1) Official boundaries
     got, missed = [], []
     for key, a in candidates.items():
-        if a.get("hidden") or a.get("boundary_source") in ("official", "drawn") or a.get("region") not in config.REGIONS:
+        if a.get("hidden") or a.get("merged_into") or a.get("boundary_source") in ("official", "drawn") or a.get("region") not in config.REGIONS:
             continue
         if not older(a.get("official_checked_at"), OFFICIAL_RECHECK_DAYS):
             continue
@@ -241,7 +241,7 @@ def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime,
     for key, a in sorted(areas.items(), key=lambda kv: kv[0] in existing):  # new suburbs first
         ex = existing.get(key) or {}
         src = ex.get("boundary_source")
-        if key in done or ex.get("hidden") or src in ("osm", "drawn", "official"):
+        if key in done or ex.get("hidden") or ex.get("merged_into") or src in ("osm", "drawn", "official"):
             continue
         if src == "none" and not older(ex.get("boundary_checked_at"), RECHECK_DAYS):
             continue
@@ -307,7 +307,7 @@ def area_pins(area_rows: list[dict]) -> dict[str, tuple[float, float, Optional[s
     """key -> (lat, lng, region) for every area with an outline that hasn't been deleted."""
     out = {}
     for a in area_rows:
-        if a.get("hidden") or not a.get("boundary"):
+        if a.get("hidden") or a.get("merged_into") or not a.get("boundary"):
             continue
         pt = inside_point(a["boundary"])
         if pt:
@@ -329,4 +329,31 @@ def place_pins_in_areas(rows, pins: dict) -> int:
         if p[2] in config.REGIONS:
             r["region"] = p[2]
         n += 1
+    return n
+
+
+# --- Merged suburbs ("Kuils River South" really is part of "Kuils River") ---------------------------
+def apply_merges(rows, area_rows: list[dict]) -> int:
+    """Listings in a suburb you merged into another are treated as that suburb everywhere (scores, pins,
+    sold figures). The ad's own suburb is kept in listed_suburb/listed_city, so undoing a merge restores it."""
+    by_key = {a["key"]: a for a in area_rows}
+    n = 0
+    for r in rows:
+        orig_sub = r.get("listed_suburb") or r.get("suburb")
+        orig_city = r.get("listed_city") or r.get("city") if r.get("listed_suburb") else r.get("city")
+        if not orig_sub:
+            continue
+        key, seen = area_key(orig_sub, orig_city), set()
+        while by_key.get(key, {}).get("merged_into") and key not in seen and len(seen) < 5:
+            seen.add(key)
+            key = by_key[key]["merged_into"]
+        target = by_key.get(key) if seen else None
+        new_sub, new_city = (target["name"], target.get("city") or orig_city) if target else (orig_sub, orig_city)
+        if (new_sub, new_city) != (r.get("suburb"), r.get("city")):
+            if r.get("pin_level") != "address":  # work out the pin again for its new suburb
+                r["lat"] = r["lng"] = None
+                r["pin_level"] = None
+        r["suburb"], r["city"] = new_sub, new_city
+        r["listed_suburb"], r["listed_city"] = (orig_sub, orig_city) if target else (None, None)
+        n += bool(target)
     return n
