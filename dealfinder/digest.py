@@ -9,7 +9,9 @@ from .signals import drops_since
 SAST = timezone(timedelta(hours=2))
 MAP_URL = "https://dobbie2005.github.io/property-deal-finder/"
 FLAG_TEXT = {"dropped_twice": "price dropped more than once", "big_drop": "10%+ below its first price",
-             "long_listed": "listed 60+ days", "auction": "auction", "bank_sale": "bank sale"}
+             "long_listed": "listed 60+ days", "auction": "auction", "bank_sale": "bank sale",
+             "deceased_estate": "deceased estate", "urgent_sale": "urgent sale", "fixer_upper": "fixer-upper",
+             "under_offer": "under offer"}
 TAG_TEXT = {"deceased": "deceased estate", "urgent": "urgent sale", "fixer": "fixer-upper",
             "auction": "auction", "bank": "bank sale", "divorce": "divorce / emigration"}
 STAGES = [("interested", "Interested"), ("viewing", "Viewing"), ("offer", "Offer made"), ("bought", "Bought"),

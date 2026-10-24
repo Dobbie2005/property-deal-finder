@@ -171,5 +171,13 @@ sellers, your deals). `apps_script/Digest.gs` emails it: add it as a second file
 and run `setupWeekly` once. Who gets it: Settings → tick **weekly summary**.
 
 ## Bank sales and auctions
-Every email in the bot inbox is copied over. If one looks like listings but can't be read (a new site),
+**Bank sales** (Absa, Standard Bank, Nedbank, SA Home Loans) are read from Private Property's public
+bank-sales pages for Cape Town and Limpopo about twice a day (`dealfinder/banksales.py`). No login is
+needed; the pages are public and allowed by Private Property's robots.txt. It reads a handful of pages
+with pauses, uses an honest user agent, never opens individual listings, and stops for the day if the
+site pushes back. Only homes in your three areas are kept. They come with the bank's name, street
+address, sizes and a short description, so "deceased estate", "urgent" and "fixer-upper" are flagged
+automatically for them; sold ones are hidden.
+
+**Auctions** and anything else: every email in the bot inbox is copied over. If one looks like listings but can't be read (a new site),
 the run summary says so; share an example and a reader for it can be added.

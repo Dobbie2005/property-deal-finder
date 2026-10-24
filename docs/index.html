@@ -436,6 +436,7 @@ function popup(l) {
     <div class="price" style="font-size:15px">${rand(l.price)}</div>${drop}${chips(l)}
     <div class="meta">${esc(facts)}</div>
     ${l.address ? `<div class="meta">${esc(l.address)}</div>` : ""}
+    ${l.description ? `<div class="meta" style="margin-top:4px;font-style:italic">“${esc(l.description)}”</div>` : ""}
     <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · listed ${ageText(l.first_seen)}${
       daysSince(l.last_seen) < daysSince(l.first_seen) ? ` · last in an alert ${ageText(l.last_seen)}` : ""}</div>
     <div style="margin-top:6px">${basisText(l)}</div>
@@ -487,6 +488,7 @@ function filtered() {
     newest: (a, b) => new Date(b.first_seen) - new Date(a.first_seen),
   };
   return all.filter(l =>
+    l.status !== "sold" &&
     (!maxAge || daysSince(l.last_seen || l.first_seen) <= maxAge) &&
     (region === "all" || l.region === region) &&
     (minScore <= -999 || (S(l).score != null && S(l).score >= minScore)) &&
@@ -939,8 +941,11 @@ function signals(l) {
   if (f.includes("big_drop") && h[0]?.[1]) out.push(`${Math.round((h[0][1] - l.price) / h[0][1] * 100)}% below first price`);
   if (f.includes("long_listed")) out.push(`${daysSince(l.first_seen)}+ days on the market`);
   const tags = notes[l.id]?.tags || [];
+  if (f.includes("under_offer")) out.push("Under offer");
   if (f.includes("auction") && !tags.includes("auction")) out.push("Auction");
-  if (f.includes("bank_sale") && !tags.includes("bank")) out.push("Bank sale");
+  if (f.includes("bank_sale") && !tags.includes("bank")) out.push(l.bank ? `Bank sale (${l.bank})` : "Bank sale");
+  for (const [flag, tag, text] of [["deceased_estate", "deceased", "Deceased estate"], ["urgent_sale", "urgent", "Urgent sale"], ["fixer_upper", "fixer", "Fixer-upper"]])
+    if (f.includes(flag) && !tags.includes(tag)) out.push(text);
   return out.concat(tags.map(t => TAG_TEXT[t] || t));
 }
 function chips(l) {

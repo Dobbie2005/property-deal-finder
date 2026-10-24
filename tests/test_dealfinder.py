@@ -582,3 +582,46 @@ def test_weekly_digest_content_and_timing():
     assert digest_mod.week_key(now) == "2026-W44"
     assert digest_mod.due(set(), now) and not digest_mod.due({"2026-W44"}, now)
     assert not digest_mod.due(set(), datetime(2026, 10, 25, 22, 30, tzinfo=timezone.utc))  # Mon 00:30 SAST: wait
+
+
+# --- Bank sales (Private Property's public bank-sales pages) -----------------------------------
+from dealfinder import banksales
+
+
+def test_parse_bank_sales_page():
+    recs, nxt = banksales.parse_bank_sales_page((SAMPLES.parent / "bank_sales_sample.html").read_text())
+    assert nxt == "https://www.privateproperty.co.za/bank-sales/western-cape/cape-town/55?page=2"
+    a, b = recs
+    assert a["id"] == "pp:T5424140" and a["price"] == 2_100_000 and a["property_type"] == "apartment"
+    assert (a["bedrooms"], a["bathrooms"], a["floor_m2"]) == (2, 1, 45)
+    assert (a["suburb"], a["city"], a["address"]) == ("Zonnebloem", "Cape Town City Bowl", "78 Chapel Towers, 45 chapel street")
+    assert a["pin_level"] == "address" and abs(a["lat"] + 33.9286) < 1e-3
+    assert a["bank"] == "Standard Bank" and a["agency"] == "Standard Bank · EasySell" and a["status"] == "for_sale"
+    assert a["url"].endswith("/T5424140") and a["image_url"].startswith("https://images.pp.co.za/")
+    assert b["status"] == "under_offer" and b["city"] == "Kraaifontein" and "lat" not in b
+    assert b["erf_m2"] == 29_000 and b["bank"] == "ABSA"
+    now = datetime(2026, 10, 24, tzinfo=timezone.utc)
+    b["first_seen"] = now
+    assert signals.seller_flags(b, now) == ["bank_sale", "deceased_estate", "fixer_upper", "under_offer"]
+
+
+class _FakeReader:
+    def __init__(self, pages, block_after=None):
+        self.pages, self.visits, self.limit, self.blocked, self.block_after = pages, 0, 8, None, block_after
+
+    def read(self, url):
+        if self.block_after is not None and self.visits >= self.block_after:
+            self.blocked = "www.privateproperty.co.za answered 503; stopped for this run"
+            return None
+        self.visits += 1
+        return (url, self.pages[url]) if url in self.pages else None
+
+
+def test_read_bank_sales_follows_next_pages_and_stops_when_blocked():
+    html = (SAMPLES.parent / "bank_sales_sample.html").read_text()
+    page2 = html.replace('<link rel="next" href="https://www.privateproperty.co.za/bank-sales/western-cape/cape-town/55?page=2" />', "")
+    pages = {banksales.PAGES[0][1]: html, banksales.PAGES[0][1] + "?page=2": page2, banksales.PAGES[1][1]: page2}
+    found, notes = banksales.read_bank_sales(_FakeReader(pages))
+    assert len(found) == 6 and notes == ["Cape Town: 4", "Limpopo: 2"]
+    found, notes = banksales.read_bank_sales(_FakeReader(pages, block_after=1))
+    assert len(found) == 2 and notes[-1].startswith("⚠️")

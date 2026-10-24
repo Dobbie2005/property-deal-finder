@@ -10,6 +10,11 @@ from typing import Optional
 LONG_LISTED_DAYS = 60   # on our radar this long and still advertised
 BIG_DROP = 0.10         # 10%+ below the first price we saw
 AUCTION_RE = re.compile(r"auction|bidx1|on auction", re.I)
+KEYWORDS = [
+    ("deceased_estate", re.compile(r"deceased|late estate|estate late|executor", re.I)),
+    ("urgent_sale", re.compile(r"urgent|must (?:be )?sell|motivated seller|quick sale|priced to sell|reduced for", re.I)),
+    ("fixer_upper", re.compile(r"fixer|tlc|handyman|renovat|needs (?:some )?work|restor", re.I)),
+]
 BANK_RE = re.compile(r"reposs|bank[\s-]*(sale|owned|assisted|repo)|in possession|\bpip\b", re.I)
 
 
@@ -42,11 +47,17 @@ def seller_flags(r: dict, now: datetime) -> list[str]:
     first = r.get("first_seen")
     if first and _day(first) <= _day(now - timedelta(days=LONG_LISTED_DAYS)):
         flags.append("long_listed")
-    text = " ".join(str(r.get(k) or "") for k in ("agency", "title"))
+    text = " ".join(str(r.get(k) or "") for k in ("agency", "title", "description"))
     if AUCTION_RE.search(text):
         flags.append("auction")
-    if BANK_RE.search(text):
+    if r.get("bank") or BANK_RE.search(text):
         flags.append("bank_sale")
+    desc = r.get("description") or ""  # only bank-sales listings come with a description
+    for flag, rx in KEYWORDS:
+        if rx.search(desc):
+            flags.append(flag)
+    if r.get("status") == "under_offer":
+        flags.append("under_offer")
     return flags
 
 

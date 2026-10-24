@@ -23,7 +23,7 @@ from dealfinder import config
 from dealfinder.details import ListingPageReader, parse_property24_page
 from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
 from dealfinder.areas import OutlineFinder, area_pins, place_pins_in_areas, update_areas
-from dealfinder import digest
+from dealfinder import banksales, digest
 from dealfinder.signals import seller_flags, update_price_history
 from dealfinder.scoring import assign_region, mark_duplicates, norm, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
@@ -33,7 +33,7 @@ COLUMNS = ["id", "source", "url", "title", "property_type", "price", "bedrooms",
            "suburb_median", "comps_count", "deal_score", "score_basis", "image_url",
            "wide_median", "wide_comps", "wide_score", "wide_basis", "trends_url",
            "address", "pin_level", "duplicate_of", "levies", "rates", "details_checked",
-           "price_history", "price_drops", "agency", "flags"]
+           "price_history", "price_drops", "agency", "flags", "bank", "description", "status"]
 MANUAL_CSV = Path(__file__).parent / "data" / "manual_listings.csv"
 
 
@@ -287,6 +287,23 @@ def main() -> int:
     if not raw and not imap_ok:
         notes.append("- No new emails waiting. If alerts have arrived in the bot Gmail, check the Apps Script "
                      "(script.google.com → Executions).")
+    # Bank sales from Private Property's public bank-sales pages, about twice a day
+    bank_ids: set = set()
+    bank_line = "- Bank sales: checked recently, next check later today"
+    try:
+        runs = {x["source"]: x for x in db.select_all("source_runs", order="source")}
+        last = parse_ts((runs.get("bank_sales") or {}).get("last_run"))
+        if not last or now - last >= timedelta(hours=banksales.EVERY_HOURS):
+            found, bank_notes = banksales.read_bank_sales()
+            fresh = [r for r in found if r["id"] in existing or r["status"] != "sold"]  # skip ones already sold
+            parsed += fresh
+            bank_ids = {r["id"] for r in fresh}
+            bank_line = f"- Bank sales read: {len(fresh)} listings ({'; '.join(bank_notes)})"
+            db.upsert("source_runs", [{"source": "bank_sales", "last_run": now.isoformat(), "note": bank_line[2:300]}])
+    except Exception as e:  # noqa: BLE001  (never stops the rest of the run)
+        bank_line = f"- Bank sales: skipped ({str(e)[:150]})"
+    notes.append(bank_line)
+
     for r in existing.values():
         r["last_seen"] = parse_ts(r.get("last_seen"))
         r["first_seen"] = parse_ts(r.get("first_seen"))
@@ -323,7 +340,7 @@ def main() -> int:
     # Private Property gives a metro like "Cape Town" (or nothing) as the town: forget those and
     # their pins, so the town is worked out from the suburb below. This also repairs older rows.
     for r in all_rows.values():
-        if r.get("source") == "privateproperty" and r.get("city") not in config.TOWNS:
+        if r.get("source") == "privateproperty" and r.get("city") not in config.TOWNS and not r.get("bank"):
             r.update(city=None, province=None, lat=None, lng=None, pin_level=None)
 
     # Suburb outlines (drawn on the map, or official) decide where address-less pins go
@@ -352,6 +369,9 @@ def main() -> int:
         r["region"] = assign_region(r)
     geo.save()
     n_area_pins = place_pins_in_areas(all_rows.values(), pins)
+    for i in [i for i in bank_ids if i not in existing and all_rows[i].get("region") in (None, "other")]:
+        del all_rows[i]  # bank sales outside your three areas
+        new_ids.discard(i)
 
     # 4) Score everything and save -----------------------------------------------
     rows = list(all_rows.values())

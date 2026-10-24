@@ -3,6 +3,7 @@ name: Daily listing check
 on:
   schedule:
     - cron: "17 3 * * *"   # every day at 05:17 South African time (03:17 UTC)
+    - cron: "17 15 * * *"  # and 17:17, so bank sales are checked twice a day even on quiet days
   workflow_dispatch:        # adds a "Run workflow" button on the Actions tab
   repository_dispatch:      # started by the Gmail Apps Script when new alert emails arrive
     types: [new-emails]
