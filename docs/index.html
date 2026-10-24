@@ -135,7 +135,11 @@
   #drawbar[hidden] { display: none; }
   .legend.todo summary { cursor: pointer; font-weight: 600; color: var(--area); }
   .todolist { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; min-width: 190px; }
-  .todolist li { padding: 2px 0; }
+  .todolist li { padding: 2px 0; display: flex; align-items: center; gap: 6px; }
+  .todolist li .meta { flex: 1; }
+  .xbtn { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 6px; }
+  .xbtn:hover { color: var(--high); background: color-mix(in srgb, var(--high) 12%, transparent); }
+  .watchbtn.danger { color: var(--high); border-color: color-mix(in srgb, var(--high) 45%, transparent); }
   #drawbar .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   main { position: relative; }
 
@@ -866,6 +870,7 @@ function figLabel(p, area) {
 function soldFigure(l) {
   if (!areaPrices.length || !l.suburb) return null;
   const key = areaKeyOf(l), group = typeGroup(l.property_type);
+  if (areas[key]?.hidden) return null;
   const figs = areaPrices.filter(p => p.area_key === key && p.type_group === group)
     .sort((a, b) => new Date(b.as_of || b.created_at) - new Date(a.as_of || a.created_at));
   if (!figs.length) return null;
@@ -920,7 +925,7 @@ function approxOutline(a) {
   const R = 1.3, n = 28;
   let poly = Array.from({ length: n }, (_, i) => [R * Math.cos(2 * Math.PI * i / n), R * Math.sin(2 * Math.PI * i / n)]);
   for (const b of Object.values(areas)) {
-    if (b === a || b.lat == null) continue;
+    if (b === a || b.lat == null || b.hidden) continue;
     const [bx, by] = toXY(b.lat, b.lng), d = Math.hypot(bx, by);
     if (d < 0.05 || d > 2 * R) continue;
     // keep the side of the half-way line that's nearer to this suburb: p·b <= |b|²/2
@@ -952,17 +957,57 @@ function drawTodo() {
   box.style.display = areasOn && !drawing ? "" : "none";
   if (!areasOn) return;
   const inRegion = Object.values(areas).filter(a => region === "all" || a.region === region);
-  const none = inRegion.filter(a => !a.boundary && a.lat == null).sort((x, y) => x.name.localeCompare(y.name));
-  const rough = inRegion.filter(a => !a.boundary && a.lat != null).sort((x, y) => x.name.localeCompare(y.name));
-  const item = (a, tag) => `<li><button class="areabtn" data-area="${esc(a.key)}">${esc(a.name)}</button> <span class="meta">${tag}</span></li>`;
+  const deleted = inRegion.filter(a => a.hidden).sort((x, y) => x.name.localeCompare(y.name));
+  const todo = inRegion.filter(a => !a.hidden && !a.skip_outline);
+  const none = todo.filter(a => !a.boundary && a.lat == null).sort((x, y) => x.name.localeCompare(y.name));
+  const rough = todo.filter(a => !a.boundary && a.lat != null).sort((x, y) => x.name.localeCompare(y.name));
+  const item = (a, tag) => `<li><button class="areabtn" data-area="${esc(a.key)}">${esc(a.name)}</button> <span class="meta">${tag}</span>
+    <button class="xbtn" data-skip="${esc(a.key)}" title="Take ${esc(a.name)} off this list (it stays on the map)" aria-label="Take off the list">✕</button></li>`;
   box.innerHTML = `<details ${todoOpen ? "open" : ""}><summary>Outlines to do (${none.length + rough.length})</summary>
     <div class="meta" style="max-width:230px;margin-bottom:4px">Tap a suburb, then <b>Draw outline</b> or <b>Adjust outline</b>.</div>
     <ul class="todolist">${none.map(a => item(a, "no outline")).join("")}${rough.map(a => item(a, "rough")).join("")}</ul>
-    <button class="watchbtn" id="addAreaBtn" style="margin-top:6px">＋ Add a suburb</button></details>`;
+    ${none.length + rough.length ? "" : `<div class="meta">All done 🎉</div>`}
+    <button class="watchbtn" id="addAreaBtn" style="margin-top:6px">＋ Add a suburb</button>
+    ${deleted.length ? `<details style="margin-top:8px"><summary class="meta" style="color:var(--muted)">Deleted areas (${deleted.length})</summary>
+      <ul class="todolist">${deleted.map(a => `<li>${esc(a.name)} <button class="areabtn" data-restore="${esc(a.key)}">Restore</button></li>`).join("")}</ul></details>` : ""}
+    </details>`;
   box.querySelector("details").addEventListener("toggle", e => { todoOpen = e.target.open; });
   box.querySelectorAll("[data-area]").forEach(b => b.addEventListener("click", () => dfArea(b.dataset.area)));
+  box.querySelectorAll("[data-skip]").forEach(b => b.addEventListener("click", () => setAreaFlags(b.dataset.skip, { skip_outline: true })));
+  box.querySelectorAll("[data-restore]").forEach(b => b.addEventListener("click", () => setAreaFlags(b.dataset.restore, { hidden: false })));
   $("addAreaBtn").addEventListener("click", openAddArea);
 }
+async function setAreaFlags(key, patch) {
+  const { error } = await sb.from("areas").update(patch).eq("key", key);
+  if (error) { alert("Couldn't save: " + error.message); return false; }
+  areas[key] = { ...areas[key], ...patch };
+  render(); drawAreas();
+  return true;
+}
+// Delete: suburbs that still have listings are hidden (the listing check would only add them back);
+// suburbs you added yourself are removed completely. Either way their sold figures stop counting.
+window.dfDeleteArea = async key => {
+  const a = areas[key];
+  if (!a) return;
+  const n = all.filter(l => areaKeyOf(l) === key).length;
+  const figs = areaPrices.filter(p => p.area_key === key).length;
+  const msg = `Delete ${a.name}?\n\n` + (n
+    ? `It still has ${n} listing${n === 1 ? "" : "s"}, which stay on the map. The area, its outline${figs ? " and its " + figs + " sold figure" + (figs === 1 ? "" : "s") : ""} are hidden; you can bring them back under Outlines to do → Deleted areas.`
+    : `Its outline${figs ? " and " + figs + " sold figure" + (figs === 1 ? "" : "s") : ""} will be removed for good.`);
+  if (!confirm(msg)) return;
+  if (n) {
+    if (!(await setAreaFlags(key, { hidden: true }))) return;
+  } else {
+    const { error } = await sb.from("areas").delete().eq("key", key);
+    if (error) { alert("Couldn't delete: " + error.message); return; }
+    delete areas[key];
+    areaPrices = areaPrices.filter(p => p.area_key !== key);
+    render(); drawAreas();
+  }
+  closeModal();
+};
+window.dfRestoreArea = async key => { if (await setAreaFlags(key, { hidden: false })) dfArea(key); };
+
 function openAddArea() {
   const towns = [...new Set([...Object.values(areas), ...all].filter(x => region === "all" || x.region === region).map(x => x.city).filter(Boolean))].sort();
   openModal(`
@@ -979,7 +1024,10 @@ function openAddArea() {
     e.preventDefault();
     const name = $("na_name").value.trim(), city = $("na_city").value.trim();
     const key = normName(city) + "/" + normName(name);
-    if (areas[key]) { closeModal(); dfArea(key); return; }
+    if (areas[key]) {
+      if (areas[key].hidden) await setAreaFlags(key, { hidden: false });
+      closeModal(); dfArea(key); return;
+    }
     const reg = region !== "all" ? region : (Object.values(areas).find(a => normName(a.city) === normName(city))?.region || null);
     const a = { key, name, city, region: reg, lat: null, lng: null };
     const { error } = await sb.from("areas").insert({ ...a, updated_by: user?.email || null });
@@ -996,7 +1044,7 @@ function drawAreas() {
   drawTodo();
   if (!areasOn) return;
   for (const a of Object.values(areas)) {
-    if (region !== "all" && a.region !== region) continue;
+    if (a.hidden || (region !== "all" && a.region !== region)) continue;
     let centre = a.lat != null ? L.latLng(a.lat, a.lng) : null;
     const guess = !a.boundary && approxOutline(a);
     if (guess) {
@@ -1072,7 +1120,10 @@ window.dfArea = (key, listingId) => {
     <div class="popup-actions">
       <button class="watchbtn" onclick="dfDrawArea('${esc(key)}', '${esc(listingId || "")}')">${a.boundary || a.lat != null ? "Adjust outline" : "Draw outline"}</button>
       <a class="watchbtn" style="text-decoration:none" href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">Find sold prices ↗</a>
+      ${!areas[key] ? "" : a.hidden ? `<button class="watchbtn" onclick="dfRestoreArea('${esc(key)}')">Restore area</button>`
+        : `<button class="watchbtn danger" onclick="dfDeleteArea('${esc(key)}')">Delete area</button>`}
     </div>
+    ${a.hidden ? `<p class="msg err">This area is deleted: it isn't shown on the map and its sold figures don't count.</p>` : ""}
 
     <h3>What homes sell for here</h3>
     <p class="meta">Copy these from Property24's area trends (“Find sold prices”), a Lightstone report or an agent. Listings in ${esc(a.name)} are then compared with them.</p>

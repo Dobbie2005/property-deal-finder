@@ -497,3 +497,15 @@ def test_official_outlines_win_and_drawn_ones_stay():
     assert info["official"] == 1 and info["official_missed"] == 1             # hand-added one checked, not found
     assert not any(r["key"] == "durbanville/vierlanden" for batch in db.upserts[1:] for r in batch)
     assert "Sonstraal" not in finder.asked
+
+
+def test_deleted_areas_are_left_alone():
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 24, tzinfo=timezone.utc)
+    rows = [{"suburb": "Sonstraal", "city": "Durbanville", "region": "durbanville", "lat": -33.843, "lng": 18.678, "pin_level": "suburb"}]
+    db = _AreasDB([{"key": "durbanville/sonstraal", "name": "Sonstraal", "region": "durbanville", "boundary_source": None, "hidden": True}])
+    official = _NoOfficial([("City of Cape Town official suburbs", [_feat("SONSTRAAL", -33.843, 18.678)])])
+    finder = _Finder({})
+    info = areas_mod.update_areas(db, rows, finder, now, official=official)
+    assert info["official"] == 0 and finder.asked == [] and official.asked == []
+    assert all("hidden" not in r for batch in db.upserts for r in batch)  # never un-deletes it

@@ -138,7 +138,9 @@ OpenStreetMap, so those get a **rough dotted outline** (the ground closer to tha
 neighbours). Open the area and choose **Adjust outline** to drag its edge into place, or **Start again**
 to draw it. Your outlines are never overwritten: the database itself refuses changes to them from
 anything but the map. With Areas on, **Outlines to do** (top left) lists suburbs with no or only a rough
-outline, and **＋ Add a suburb** adds one that has no listings yet.
+outline, and **＋ Add a suburb** adds one that has no listings yet. The ✕ next to a suburb takes it off that
+list. **Delete area** (in Area details) removes a suburb you added; one that still has listings is hidden
+instead (its listings stay) and can be brought back under Outlines to do → Deleted areas.
 
 Each area also holds **what homes actually sell for** there. Copy figures in from Property24's area
 trends, a Lightstone report or an agent (for example "3-bed houses, sold average R2.4m"). Then:

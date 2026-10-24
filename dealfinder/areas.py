@@ -202,7 +202,7 @@ def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime,
     areas = collect_areas(rows)
     existing = {a["key"]: a for a in db.select_all(
         "areas", order="key",
-        select="key,name,city,region,lat,lng,boundary_source,boundary_checked_at,official_checked_at")}
+        select="key,name,city,region,lat,lng,boundary_source,boundary_checked_at,official_checked_at,hidden")}
     if areas:
         db.upsert("areas", list(areas.values()))  # names, regions and centres only
 
@@ -216,7 +216,7 @@ def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime,
     # 1) Official boundaries
     got, missed = [], []
     for key, a in candidates.items():
-        if a.get("boundary_source") in ("official", "drawn") or a.get("region") not in config.REGIONS:
+        if a.get("hidden") or a.get("boundary_source") in ("official", "drawn") or a.get("region") not in config.REGIONS:
             continue
         if not older(a.get("official_checked_at"), OFFICIAL_RECHECK_DAYS):
             continue
@@ -241,7 +241,7 @@ def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime,
     for key, a in sorted(areas.items(), key=lambda kv: kv[0] in existing):  # new suburbs first
         ex = existing.get(key) or {}
         src = ex.get("boundary_source")
-        if key in done or src in ("osm", "drawn", "official"):
+        if key in done or ex.get("hidden") or src in ("osm", "drawn", "official"):
             continue
         if src == "none" and not older(ex.get("boundary_checked_at"), RECHECK_DAYS):
             continue
