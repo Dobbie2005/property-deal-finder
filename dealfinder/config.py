@@ -60,5 +60,7 @@ NOMINATIM_EMAIL = os.environ.get("NOMINATIM_EMAIL", "")
 MAX_GEOCODES_PER_RUN = 60
 
 # --- Property24 listing pages (floor size, plot size, levies, rates, area-trend link) ---
-# Each new Property24 listing is visited once, politely; Private Property pages are never visited.
+# Off: Property24's bot protection answers GitHub's servers with 503, and we respect that.
+# Sizes typed into a listing's popup on the map are used instead.
+READ_LISTING_PAGES = False
 MAX_PAGE_VISITS_PER_RUN = 40

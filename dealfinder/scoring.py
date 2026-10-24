@@ -21,9 +21,9 @@ from . import config
 
 
 def type_group(ptype: Optional[str]) -> str:
-    if ptype in ("apartment", "land", "farm", "commercial"):
-        return ptype
-    return "house"  # houses, townhouses and unknown types are compared together
+    if ptype in ("apartment", "townhouse", "land", "farm", "commercial"):
+        return ptype   # townhouses (homes in a complex) are a different market from freestanding houses
+    return "house"
 
 
 def norm(name: Optional[str]) -> str:
@@ -36,8 +36,9 @@ def _key(r: dict) -> tuple:
 
 
 def mark_duplicates(rows: list[dict]) -> int:
-    """The same home listed on two sites: same suburb, type and bedrooms, price within 2%.
-    The Property24 copy (or the older one) stays; the other gets duplicate_of = its id."""
+    """The same home listed twice: same suburb, type and bedrooms, and a price within 2% (different
+    sites) or within 0.5% (two agents on the same site). The Property24 copy (or the older one)
+    stays; the other gets duplicate_of = its id."""
     for r in rows:
         r["duplicate_of"] = None
     groups = defaultdict(list)
@@ -49,9 +50,10 @@ def mark_duplicates(rows: list[dict]) -> int:
         kept: list[dict] = []
         twinned: set = set()  # (kept id, other site): a home has at most one twin per site
         for r in members:
-            options = [k for k in kept if k.get("source") != r.get("source")
-                       and (k["id"], r.get("source")) not in twinned
-                       and abs(k["price"] - r["price"]) <= 0.02 * max(k["price"], r["price"])]
+            def close(k):
+                tol = 0.02 if k.get("source") != r.get("source") else 0.005
+                return abs(k["price"] - r["price"]) <= tol * max(k["price"], r["price"])
+            options = [k for k in kept if (k["id"], r.get("source")) not in twinned and close(k)]
             if options:
                 twin = min(options, key=lambda k: abs(k["price"] - r["price"]))
                 twinned.add((twin["id"], r.get("source")))

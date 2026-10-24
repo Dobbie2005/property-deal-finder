@@ -352,3 +352,20 @@ def test_deal_alerts_are_queued_for_new_listings_and_price_drops():
     q = run.queue_deal_alerts(rows, new_ids={"a", "c", "d", "e"}, drops={"b": 2_500_000})
     assert q == [{"listing_id": "a", "reason": "new", "old_price": None},
                  {"listing_id": "b", "reason": "price_drop", "old_price": 2_500_000}]
+
+
+def test_same_house_listed_by_two_agents_on_one_site_counts_once():
+    from dealfinder.scoring import mark_duplicates
+    rows = [{"id": "p24:a", "source": "property24", "suburb": "Bendor", "property_type": "house", "bedrooms": 3, "price": 1_780_000, "first_seen": "1"},
+            {"id": "p24:b", "source": "property24", "suburb": "Bendor", "property_type": "house", "bedrooms": 3, "price": 1_780_000, "first_seen": "2"},
+            {"id": "p24:c", "source": "property24", "suburb": "Bendor", "property_type": "house", "bedrooms": 3, "price": 1_850_000, "first_seen": "3"}]
+    assert mark_duplicates(rows) == 1
+    assert [r["duplicate_of"] for r in rows] == [None, "p24:a", None]   # 4% apart: a different house
+
+
+def test_townhouses_are_not_compared_with_houses():
+    now = datetime.now(timezone.utc)
+    rows = [_row("th", 750_000, beds=2, now=now)] + [_row(i, 3_000_000, beds=2, now=now) for i in range(4)]
+    rows[0]["property_type"] = "townhouse"
+    score_listings(rows, now)
+    assert rows[0]["deal_score"] is None   # only houses to compare with: no score rather than a fake "75% below"

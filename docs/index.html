@@ -375,10 +375,14 @@ function popup(l) {
       <button class="watchbtn ${notes[l.id]?.watched ? "on" : ""}" onclick="dfToggleWatch('${esc(l.id)}')">${notes[l.id]?.watched ? "★ On shortlist" : "☆ Shortlist"}</button>
       <button class="watchbtn" onclick="dfFlip('${esc(l.id)}')">Flip calculator</button>
     </div>
+    <div style="display:flex;gap:8px;margin-top:8px" title="Copy these from the ad. They make comparisons and the flip calculator more accurate.">
+      <label class="meta" style="flex:1">Floor m²<input class="notebox" type="number" min="10" max="5000" id="floor-${esc(l.id)}" value="${esc(notes[l.id]?.floor_m2 ?? l.floor_m2 ?? "")}" placeholder="from the ad"></label>
+      <label class="meta" style="flex:1">Plot m²<input class="notebox" type="number" min="10" id="erf-${esc(l.id)}" value="${esc(notes[l.id]?.erf_m2 ?? l.erf_m2 ?? "")}" placeholder="optional"></label>
+    </div>
     <textarea class="notebox" rows="2" placeholder="Notes for you and your dad…" id="note-${esc(l.id)}">${esc(notes[l.id]?.note || "")}</textarea>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
       <span class="meta">${notes[l.id]?.updated_by ? `Saved by ${esc(notes[l.id].updated_by)}, ${ageText(notes[l.id].updated_at)}` : ""}</span>
-      <button class="watchbtn" onclick="dfSaveNote('${esc(l.id)}')">Save note</button>
+      <button class="watchbtn" onclick="dfSaveNote('${esc(l.id)}')">Save</button>
     </div></div>`;
 }
 
@@ -528,6 +532,10 @@ function loadAndShow() {
     twins = {};
     for (const l of rows) if (l.duplicate_of) (twins[l.duplicate_of] ||= []).push(l);
     all = rows.filter(l => !l.duplicate_of);
+    for (const l of all) {  // sizes typed in on the map
+      if (notes[l.id]?.floor_m2) l.floor_m2 = Number(notes[l.id].floor_m2);
+      if (notes[l.id]?.erf_m2) l.erf_m2 = Number(notes[l.id].erf_m2);
+    }
     render();
   })
   .catch(err => {
@@ -606,6 +614,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
 // ---------------------------------------------------------------------------------------------
 async function saveNoteRow(id, patch) {
   const row = { listing_id: id, watched: notes[id]?.watched || false, note: notes[id]?.note || null,
+                floor_m2: notes[id]?.floor_m2 ?? null, erf_m2: notes[id]?.erf_m2 ?? null,
                 ...patch, updated_by: user?.email || null, updated_at: new Date().toISOString() };
   const { error } = await sb.from("listing_notes").upsert(row);
   if (error) { alert("Couldn't save: " + error.message); return; }
@@ -615,7 +624,13 @@ async function saveNoteRow(id, patch) {
   if (m) cluster.zoomToShowLayer(m, () => m.openPopup());
 }
 window.dfToggleWatch = id => saveNoteRow(id, { watched: !notes[id]?.watched });
-window.dfSaveNote = id => saveNoteRow(id, { note: ($("note-" + id)?.value || "").trim() || null });
+window.dfSaveNote = id => {
+  const n = k => { const v = Number($(k + "-" + id)?.value); return v > 0 ? v : null; };
+  const floor = n("floor"), erf = n("erf");
+  const l = all.find(x => x.id === id);
+  if (l) { if (floor) l.floor_m2 = floor; if (erf) l.erf_m2 = erf; }  // used straight away by the calculator
+  return saveNoteRow(id, { note: ($("note-" + id)?.value || "").trim() || null, floor_m2: floor, erf_m2: erf });
+};
 
 // ---------------------------------------------------------------------------------------------
 // Dialogs: Settings (deal alert emails, account) and the flip calculator
@@ -682,7 +697,7 @@ function transferDuty(v) {
   for (const [from, base, rate] of b) if (v > from) return base + (v - from) * rate;
   return 0;
 }
-const typeGroup = t => ["apartment", "land", "farm", "commercial"].includes(t) ? t : "house";
+const typeGroup = t => ["apartment", "townhouse", "land", "farm", "commercial"].includes(t) ? t : "house";
 const normName = s => (s || "").toLowerCase().replace(/[^a-z]/g, "");
 function km(a, b) {
   const r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;

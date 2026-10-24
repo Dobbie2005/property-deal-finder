@@ -129,6 +129,21 @@ def queue_deal_alerts(rows: list[dict], new_ids: set, drops: dict) -> list[dict]
     return out
 
 
+def apply_typed_sizes(rows: list[dict], notes: list[dict]) -> int:
+    """Floor/plot sizes you typed into a listing's popup on the map."""
+    by_id = {n["listing_id"]: n for n in notes}
+    n = 0
+    for r in rows:
+        note = by_id.get(r["id"])
+        if not note:
+            continue
+        for k in ("floor_m2", "erf_m2"):
+            if note.get(k):
+                r[k] = float(note[k])
+                n += k == "floor_m2"
+    return n
+
+
 def share_details_with_twins(rows: list[dict]) -> None:
     """A Private Property copy of a home gets the sizes read from its Property24 twin (and vice versa)."""
     by_id = {r["id"]: r for r in rows}
@@ -323,7 +338,8 @@ def main() -> int:
     # 4) Score everything and save -----------------------------------------------
     rows = list(all_rows.values())
     reader = ListingPageReader(config.MAX_PAGE_VISITS_PER_RUN)
-    n_details = add_listing_details(rows, reader, now)
+    n_details = add_listing_details(rows, reader, now) if config.READ_LISTING_PAGES else None
+    n_typed = apply_typed_sizes(rows, db.select_all("listing_notes", order="listing_id"))
     n_dupes = mark_duplicates(rows)
     share_details_with_twins(rows)
     score_listings(rows, now)
@@ -367,7 +383,8 @@ def main() -> int:
          if all_rows[i].get("deal_score") is not None and all_rows[i]["deal_score"] >= config.NOTIFY_MIN_SCORE),
         key=lambda d: -d["deal_score"],
     )
-    top = sorted((r for r in rows if r.get("deal_score") is not None), key=lambda d: -d["deal_score"])[:10]
+    top = sorted((r for r in rows if r.get("deal_score") is not None and not r.get("duplicate_of")),
+                 key=lambda d: -d["deal_score"])[:10]
     lines = [
         "## Daily listing check",
         f"- Emails read: {n_emails}",
@@ -378,17 +395,19 @@ def main() -> int:
          + (" ⚠️ getting full: lower KEEP_LISTINGS_DAYS in dealfinder/config.py" if size_mb >= config.DB_WARN_MB else "")
          if size_mb is not None else "- Database size: unknown"),
         f"- Old listings removed: {len(stale)}",
-        f"- Listing pages read for sizes: {n_details}"
-        + (f" ⚠️ {reader.blocked}" if reader.blocked else ""),
+        (f"- Listing pages read for sizes: {n_details}" + (f" ⚠️ {reader.blocked}" if reader.blocked else "")
+         if n_details is not None else "- Listing pages: not read (Property24 blocks automated visits)"),
+        f"- Sizes typed in on the map: {n_typed}",
         f"- Homes listed on both sites (shown once): {n_dupes}",
         f"- Deal alerts queued for email: {len(queued)}",
         *notes,
         "",
         "### Top 10 deals right now",
-        "| Deal | Price | Beds | Suburb | Region |",
+        "| Deal | Price | Beds / type | Suburb | Region |",
         "|---|---|---|---|---|",
     ] + [
-        f"| {d['deal_score']:.0f}% below | {fmt_r(d['price'])} | {d.get('bedrooms') or '-'} | "
+        f"| {abs(d['deal_score']):.0f}% {'below' if d['deal_score'] >= 0 else 'above'} | {fmt_r(d['price'])} | "
+        f"{d.get('bedrooms') or '-'} {d.get('property_type') or ''} | "
         f"[{d.get('suburb')}]({d['url']}) | {d.get('region')} |" for d in top
     ]
     write_job_summary(lines)
