@@ -509,3 +509,28 @@ def test_deleted_areas_are_left_alone():
     info = areas_mod.update_areas(db, rows, finder, now, official=official)
     assert info["official"] == 0 and finder.asked == [] and official.asked == []
     assert all("hidden" not in r for batch in db.upserts for r in batch)  # never un-deletes it
+
+
+def test_inside_point_for_normal_and_odd_shapes():
+    sq = _sq(-23.94, 29.93, 0.02)
+    lat, lng = areas_mod.inside_point(sq)
+    assert abs(lat - (-23.93)) < 1e-6 and abs(lng - 29.94) < 1e-6
+    # a "C" shape whose centre is outside it (like Clearwaters Cove along the dam)
+    c = {"type": "Polygon", "coordinates": [[[0, 0], [3, 0], [3, 1], [1, 1], [1, 2], [3, 2], [3, 3], [0, 3], [0, 0]]]}
+    lat, lng = areas_mod.inside_point(c)
+    assert areas_mod._inside([(p[0], p[1]) for p in c["coordinates"][0]], lng, lat)
+
+
+def test_listings_go_inside_their_suburb_outline_and_keep_its_region():
+    pins = areas_mod.area_pins([
+        {"key": "tzaneen/haenertsburg", "region": "tzaneen", "boundary": _sq(-23.95, 29.93, 0.02)},
+        {"key": "tzaneen/gone", "region": "tzaneen", "boundary": _sq(-23.9, 30.1, 0.01), "hidden": True},
+    ])
+    rows = [
+        {"suburb": "Haenertsburg", "city": "Tzaneen", "lat": -23.83, "lng": 30.16, "pin_level": "town", "region": "other"},
+        {"suburb": "Haenertsburg", "city": "Tzaneen", "lat": -23.941, "lng": 29.941, "pin_level": "address", "region": "other"},
+        {"suburb": "Gone", "city": "Tzaneen", "lat": -23.83, "lng": 30.16, "pin_level": "town", "region": "tzaneen"},
+    ]
+    assert areas_mod.place_pins_in_areas(rows, pins) == 1
+    assert rows[0]["pin_level"] == "area" and rows[0]["region"] == "tzaneen" and abs(rows[0]["lat"] - (-23.94)) < 1e-6
+    assert rows[1]["pin_level"] == "address" and rows[2]["pin_level"] == "town"

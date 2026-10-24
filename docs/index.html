@@ -418,6 +418,7 @@ function popup(l) {
     <div style="margin-top:6px">${basisText(l)}</div>
     ${soldBox(l)}
     <div class="meta" style="margin-top:4px">${l.pin_level === "address" ? "📍 Pin is at the street address."
+      : l.pin_level === "area" ? "Pin is in the middle of the suburb's outline (no street address given)."
       : l.pin_level === "town" ? "Pin is at the town centre (suburb not found)." : "Pin is at the suburb centre."}</div>
     <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open on ${SITE[l.source] || "site"} ↗</a>
     ${(twins[l.id] || []).map(t => `&nbsp;·&nbsp;<a class="open" href="${esc(t.url)}" target="_blank" rel="noopener">Also on ${SITE[t.source] || "another site"} ↗</a>`).join("")}
@@ -594,6 +595,7 @@ function loadAndShow() {
       if (notes[l.id]?.floor_m2) l.floor_m2 = Number(notes[l.id].floor_m2);
       if (notes[l.id]?.erf_m2) l.erf_m2 = Number(notes[l.id].erf_m2);
     }
+    applyAreaPins();
     render();
     drawAreas();
   })
@@ -981,7 +983,7 @@ async function setAreaFlags(key, patch) {
   const { error } = await sb.from("areas").update(patch).eq("key", key);
   if (error) { alert("Couldn't save: " + error.message); return false; }
   areas[key] = { ...areas[key], ...patch };
-  render(); drawAreas();
+  applyAreaPins(); render(); drawAreas();
   return true;
 }
 // Delete: suburbs that still have listings are hidden (the listing check would only add them back);
@@ -1002,7 +1004,7 @@ window.dfDeleteArea = async key => {
     if (error) { alert("Couldn't delete: " + error.message); return; }
     delete areas[key];
     areaPrices = areaPrices.filter(p => p.area_key !== key);
-    render(); drawAreas();
+    applyAreaPins(); render(); drawAreas();
   }
   closeModal();
 };
@@ -1035,6 +1037,41 @@ function openAddArea() {
     areas[key] = { ...a, updated_at: new Date().toISOString() };
     dfDrawArea(key);
   });
+}
+
+// A point inside an outline: its centre, or for odd shapes (e.g. along a dam) the middle of the widest
+// stretch across it. Same rule as the daily job.
+function insidePoint(geo) {
+  const polys = geo.type === "MultiPolygon" ? geo.coordinates : [geo.coordinates];
+  const rings = polys.filter(p => p && p[0] && p[0].length >= 3).map(p => p[0]);
+  if (!rings.length) return null;
+  const stats = r => { let a = 0, cx = 0, cy = 0;
+    r.forEach((p, i) => { const q = r[(i + 1) % r.length], f = p[0] * q[1] - q[0] * p[1]; a += f; cx += (p[0] + q[0]) * f; cy += (p[1] + q[1]) * f; });
+    return Math.abs(a) < 1e-14 ? [0, r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length] : [a / 2, cx / (3 * a), cy / (3 * a)]; };
+  const ring = rings.reduce((b, r) => Math.abs(stats(r)[0]) > Math.abs(stats(b)[0]) ? r : b);
+  const [, cx, cy] = stats(ring);
+  const xs = [];
+  ring.forEach((p, i) => { const q = ring[(i + 1) % ring.length];
+    if ((p[1] > cy) !== (q[1] > cy)) xs.push(p[0] + (cy - p[1]) * (q[0] - p[0]) / (q[1] - p[1])); });
+  xs.sort((a, b) => a - b);
+  if (xs.filter(x => x > cx).length % 2 === 1 || xs.length < 2) return [cy, cx];   // centre is inside
+  let best = [xs[0], xs[1]];
+  for (let i = 0; i + 1 < xs.length; i += 2) if (xs[i + 1] - xs[i] > best[1] - best[0]) best = [xs[i], xs[i + 1]];
+  return [cy, (best[0] + best[1]) / 2];
+}
+// Listings without a street address sit in the middle of their suburb's outline
+function applyAreaPins() {
+  for (const l of [...all, ...Object.values(twins).flat()]) {
+    l._orig ||= { lat: l.lat, lng: l.lng, pin_level: l.pin_level, region: l.region };
+    Object.assign(l, l._orig);
+    if (l.pin_level === "address" || !l.suburb) continue;
+    const a = areas[areaKeyOf(l)];
+    if (!a || a.hidden || !a.boundary) continue;
+    const pt = insidePoint(a.boundary);
+    if (!pt) continue;
+    [l.lat, l.lng] = pt; l.pin_level = "area";
+    if (a.region && REGIONS[a.region]) l.region = a.region;
+  }
 }
 
 function drawAreas() {
@@ -1234,6 +1271,7 @@ window.dfSaveOutline = async () => {
   if (error) { alert("Couldn't save the outline: " + error.message); return; }
   areas[key] = { ...(areas[key] || {}), ...row };
   stopDrawing();
+  applyAreaPins(); render();
 };
 document.addEventListener("keydown", e => { if (e.key === "Escape" && drawing) stopDrawing(); });
 drawAreas();

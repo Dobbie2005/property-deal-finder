@@ -22,7 +22,7 @@ from pathlib import Path
 from dealfinder import config
 from dealfinder.details import ListingPageReader, parse_property24_page
 from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
-from dealfinder.areas import OutlineFinder, update_areas
+from dealfinder.areas import OutlineFinder, area_pins, place_pins_in_areas, update_areas
 from dealfinder.scoring import assign_region, mark_duplicates, norm, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
 
@@ -319,6 +319,15 @@ def main() -> int:
         if r.get("source") == "privateproperty" and r.get("city") not in config.TOWNS:
             r.update(city=None, province=None, lat=None, lng=None, pin_level=None)
 
+    # Suburb outlines (drawn on the map, or official) decide where address-less pins go
+    try:
+        pins = area_pins(db.select_all("areas", order="key", select="key,region,boundary,hidden"))
+    except Exception:  # noqa: BLE001  (before the areas table existed)
+        pins = {}
+    for r in all_rows.values():
+        if r.get("pin_level") == "area":  # the outline may have changed or been deleted: work it out again
+            r["pin_level"] = None
+
     # Re-check pins placed before pin accuracy was tracked (cheap: the places are cached)
     for r in all_rows.values():
         if r.get("pin_level") is None:
@@ -335,6 +344,7 @@ def main() -> int:
             r["lat"], r["lng"] = geo.locate(r)
         r["region"] = assign_region(r)
     geo.save()
+    n_area_pins = place_pins_in_areas(all_rows.values(), pins)
 
     # 4) Score everything and save -----------------------------------------------
     rows = list(all_rows.values())
@@ -402,6 +412,7 @@ def main() -> int:
         f"- Listings found in emails/CSV: {len(parsed)} ({len(new_ids)} new)",
         f"- Listings in database: {len(rows)} ({sum(r.get('deal_score') is not None for r in rows)} with a score)",
         f"- New suburbs located on the map: {len(geo.new_rows)}",
+        f"- Pins placed inside suburb outlines: {n_area_pins}",
         (f"- Database size: {size_mb:.0f} MB of the free 500 MB"
          + (" ⚠️ getting full: lower KEEP_LISTINGS_DAYS in dealfinder/config.py" if size_mb >= config.DB_WARN_MB else "")
          if size_mb is not None else "- Database size: unknown"),

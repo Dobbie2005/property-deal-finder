@@ -255,3 +255,78 @@ def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime,
         db.upsert("areas", checked)
     return {"areas": len(areas), "checked": len(checked), "found": found,
             "official": len(got), "official_missed": len(missed), "notes": official.notes}
+
+
+# --- Pins inside suburb outlines -------------------------------------------------------------------
+def _ring_area_centroid(ring: list) -> tuple[float, float, float]:
+    """(signed area, centroid lng, centroid lat) of a ring of [lng, lat] points."""
+    a = cx = cy = 0.0
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]):
+        f = x1 * y2 - x2 * y1
+        a += f
+        cx += (x1 + x2) * f
+        cy += (y1 + y2) * f
+    if abs(a) < 1e-14:
+        xs, ys = [p[0] for p in ring], [p[1] for p in ring]
+        return 0.0, sum(xs) / len(xs), sum(ys) / len(ys)
+    return a / 2, cx / (3 * a), cy / (3 * a)
+
+
+def _inside(ring: list, x: float, y: float) -> bool:
+    hit = False
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+def inside_point(geo: dict) -> Optional[tuple[float, float]]:
+    """(lat, lng) of a point inside the outline's biggest piece: its centre if that's inside
+    (most shapes), else the middle of the widest stretch across it at that latitude (odd shapes)."""
+    try:
+        polys = geo["coordinates"] if geo["type"] == "MultiPolygon" else [geo["coordinates"]]
+        rings = [[(float(p[0]), float(p[1])) for p in poly[0]] for poly in polys if poly and len(poly[0]) >= 3]
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+    if not rings:
+        return None
+    ring = max(rings, key=lambda r: abs(_ring_area_centroid(r)[0]))
+    _, cx, cy = _ring_area_centroid(ring)
+    if _inside(ring, cx, cy):
+        return cy, cx
+    xs = sorted(x1 + (cy - y1) * (x2 - x1) / (y2 - y1)
+                for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]) if (y1 > cy) != (y2 > cy))
+    spans = [(xs[i], xs[i + 1]) for i in range(0, len(xs) - 1, 2)]
+    if not spans:
+        return cy, cx
+    a, b = max(spans, key=lambda s: s[1] - s[0])
+    return cy, (a + b) / 2
+
+
+def area_pins(area_rows: list[dict]) -> dict[str, tuple[float, float, Optional[str]]]:
+    """key -> (lat, lng, region) for every area with an outline that hasn't been deleted."""
+    out = {}
+    for a in area_rows:
+        if a.get("hidden") or not a.get("boundary"):
+            continue
+        pt = inside_point(a["boundary"])
+        if pt:
+            out[a["key"]] = (pt[0], pt[1], a.get("region"))
+    return out
+
+
+def place_pins_in_areas(rows, pins: dict) -> int:
+    """Listings without a street address go in the middle of their suburb's outline when it has one.
+    The suburb's region wins (Haenertsburg is part of the Tzaneen area even though it's 25 km away)."""
+    n = 0
+    for r in rows:
+        if r.get("pin_level") == "address" or not r.get("suburb") or not r.get("city"):
+            continue
+        p = pins.get(area_key(r["suburb"], r["city"]))
+        if not p:
+            continue
+        r["lat"], r["lng"], r["pin_level"] = p[0], p[1], "area"
+        if p[2] in config.REGIONS:
+            r["region"] = p[2]
+        n += 1
+    return n
