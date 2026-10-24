@@ -284,7 +284,7 @@ def parse_property24_alert(text: str, html: Optional[str] = None) -> list[dict]:
                "url": f"https://www.property24.com/General/RedirectToListing?listingNumber=P24-{lid}",
                "city": town, "province": province, "price": None, "bedrooms": None, "bathrooms": None,
                "floor_m2": None, "erf_m2": None, "property_type": None, "suburb": None, "title": None,
-               "image_url": photos.get(lid)}
+               "image_url": photos.get(lid), "agency": None}
         idx_type = None
         for i, line in enumerate(lines):
             if rec["price"] is None and PRICE_RE.search(line):
@@ -299,6 +299,9 @@ def parse_property24_alert(text: str, html: Optional[str] = None) -> list[dict]:
                     rec["bedrooms"] = float(beds.group(1))
         if idx_type is not None and idx_type + 1 < len(lines):
             rec["suburb"] = lines[idx_type + 1]
+            nxt = lines[idx_type + 2] if idx_type + 2 < len(lines) else ""
+            if nxt and not nxt.startswith("[") and not nxt.lower().startswith("view") and not PRICE_RE.search(nxt):
+                rec["agency"] = nxt[:120]  # e.g. "Keller Williams North" (auction houses get flagged)
             for t, p in P24_TOWNS.values():  # e.g. "Polokwane Central" belongs to Polokwane
                 if t.lower() in rec["suburb"].lower() and t != rec["city"]:
                     rec["city"], rec["province"] = t, p

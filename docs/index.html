@@ -108,6 +108,26 @@
   .verdict.good { background: color-mix(in srgb, var(--great) 18%, transparent); }
   .verdict.bad { background: color-mix(in srgb, var(--high) 18%, transparent); }
 
+  /* ---------- Seller signals, deal pipeline ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .chip { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, #e8590c 16%, transparent); color: #d9480f; }
+  :root[data-theme="dark"] .chip { color: #ffa94d; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip { color: #ffa94d; } }
+  .chip.stage { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  .tagbtn { font: inherit; font-size: 11.5px; border: 1px dashed var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 2px 8px; cursor: pointer; }
+  .tagbtn.on { border-style: solid; border-color: #e8590c; color: #d9480f; background: color-mix(in srgb, #e8590c 12%, transparent); }
+  .stagesel { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+  .pipe-stage { margin-top: 14px; }
+  .pipe-stage h3 { display: flex; justify-content: space-between; margin: 0 0 6px; font-size: 14px; }
+  .deal { display: grid; grid-template-columns: 72px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .deal .thumb { width: 72px; height: 52px; }
+  .deal .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 10px 0; }
+  .stat { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 17px; }
+  .learn { margin: 8px 0 4px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, transparent); font-size: 13px; }
+  #dealsBtn { order: 2; }
+
   /* ---------- Areas (suburb outlines) ---------- */
   :root { --area: #7048e8; }
   :root[data-theme="dark"] { --area: #b197fc; }
@@ -153,6 +173,7 @@
     .themebtn .lbl { display: none; }
     #settingsBtn, #areasBtn { order: 3; padding: 6px 10px; }
     #settingsBtn .lbl { display: none; }
+    #dealsBtn { display: none; }
     #settingsBtn::before { content: "⚙"; font-size: 16px; line-height: 1; }
     header .chipbtn, .themebtn { padding: 6px 10px; }
     .tabs { order: 4; flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
@@ -217,11 +238,13 @@
       </select></label>
     <label><input type="checkbox" id="dropsOnly"> price dropped</label>
     <label><input type="checkbox" id="watchedOnly"> shortlist only</label>
+    <label title="Price dropped more than once or 10%+, 60+ days on the market, auction, bank sale, or a signal you ticked (deceased estate, urgent…)"><input type="checkbox" id="motivatedOnly"> motivated sellers</label>
     <label title="When a suburb has too few similar listings, also compare with suburbs within 3 km">Compare with
       <select id="compare"><option value="suburb">same suburb</option><option value="nearby">+ nearby suburbs</option><option value="sold">sold prices you saved</option></select></label>
   </div>
   <button class="chipbtn filtersbtn" id="filtersBtn" aria-expanded="false">Filters</button>
   <button class="themebtn" id="themeBtn" title="Switch between automatic, light and dark"><span class="lbl">Theme: </span>Auto</button>
+  <button class="chipbtn" id="dealsBtn" title="Your deal pipeline: interested → viewing → offer → bought → renovating → sold">Deals</button>
   <button class="chipbtn" id="areasBtn" title="Show suburb outlines, and what homes sell for in each one">Areas</button>
   <button class="chipbtn" id="settingsBtn" title="Deal alert emails and account" aria-label="Settings"><span class="lbl">Settings</span></button>
 </header>
@@ -231,7 +254,7 @@
   <div id="drawbar" hidden></div>
 </main>
 <nav class="viewswitch" aria-label="Show map or list">
-  <button id="viewMap" class="on">Map</button><button id="viewList">List</button>
+  <button id="viewMap" class="on">Map</button><button id="viewList">List</button><button id="viewDeals">Deals</button>
 </nav>
 
 <div id="auth" class="overlay" hidden>
@@ -410,7 +433,7 @@ function popup(l) {
   const drop = l.first_price && l.price && l.price < l.first_price
     ? `<div class="drop">Dropped from ${rand(l.first_price)}</div>` : "";
   return `<div>${photo(l, "popup-photo")}<b>${esc(l.title || `${(l.property_type || "property").replace(/^./, c => c.toUpperCase())} in ${l.suburb}`)}</b>
-    <div class="price" style="font-size:15px">${rand(l.price)}</div>${drop}
+    <div class="price" style="font-size:15px">${rand(l.price)}</div>${drop}${chips(l)}
     <div class="meta">${esc(facts)}</div>
     ${l.address ? `<div class="meta">${esc(l.address)}</div>` : ""}
     <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · listed ${ageText(l.first_seen)}${
@@ -428,6 +451,13 @@ function popup(l) {
       <button class="watchbtn" onclick="dfFlip('${esc(l.id)}')">Flip calculator</button>
       <button class="watchbtn" onclick="dfArea('${esc(areaKeyOf(l))}', '${esc(l.id)}')">${esc(l.suburb)} area</button>
     </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+      <label class="meta">Deal stage <select class="stagesel" onchange="dfSetStage('${esc(l.id)}', this.value)">
+        <option value="">—</option>${STAGES.map(([k, t]) => `<option value="${k}" ${notes[l.id]?.stage === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      ${notes[l.id]?.stage ? `<button class="watchbtn" onclick="dfDeal('${esc(l.id)}')">Deal numbers</button>` : ""}
+    </div>
+    <div class="meta" style="margin-top:8px">Seller signals in the ad:</div>
+    <div class="chips">${TAGS.map(([k, t]) => `<button class="tagbtn ${(notes[l.id]?.tags || []).includes(k) ? "on" : ""}" onclick="dfToggleTag('${esc(l.id)}', '${k}')">${t}</button>`).join("")}</div>
     <div style="display:flex;gap:8px;margin-top:8px" title="Copy these from the ad. They make comparisons and the flip calculator more accurate.">
       <label class="meta" style="flex:1">Floor m²<input class="notebox" type="number" min="10" max="5000" id="floor-${esc(l.id)}" value="${esc(notes[l.id]?.floor_m2 ?? l.floor_m2 ?? "")}" placeholder="from the ad"></label>
       <label class="meta" style="flex:1">Plot m²<input class="notebox" type="number" min="10" id="erf-${esc(l.id)}" value="${esc(notes[l.id]?.erf_m2 ?? l.erf_m2 ?? "")}" placeholder="optional"></label>
@@ -446,6 +476,7 @@ function filtered() {
   const ptype = document.getElementById("ptype").value;
   const drops = document.getElementById("dropsOnly").checked;
   const watchedOnly = document.getElementById("watchedOnly").checked;
+  const motivatedOnly = document.getElementById("motivatedOnly").checked;
   const maxAge = +document.getElementById("maxAge").value;
   const sortBy = document.getElementById("sortBy").value;
   const price = l => l.price || null;  // listings without a price ("POA") always go last
@@ -463,7 +494,8 @@ function filtered() {
     (!minBeds || (l.bedrooms || 0) >= minBeds) &&
     (!ptype || l.property_type === ptype) &&
     (!drops || (l.first_price && l.price < l.first_price)) &&
-    (!watchedOnly || notes[l.id]?.watched)
+    (!watchedOnly || notes[l.id]?.watched || notes[l.id]?.stage) &&
+    (!motivatedOnly || signals(l).length)
   ).sort(sorters[sortBy] || sorters.deal);
 }
 
@@ -489,7 +521,7 @@ function render() {
   const active = [+document.getElementById("minScore").value !== -999, !!document.getElementById("maxPrice").value,
     document.getElementById("minBeds").value !== "0", !!document.getElementById("ptype").value,
     document.getElementById("maxAge").value !== "90", document.getElementById("dropsOnly").checked, compareMode !== "suburb",
-    document.getElementById("watchedOnly").checked]
+    document.getElementById("watchedOnly").checked, document.getElementById("motivatedOnly").checked]
     .filter(Boolean).length;
   document.getElementById("filtersBtn").textContent = active ? `Filters (${active})` : "Filters";
   list.innerHTML = `<div class="summary">${rows.length} listing${rows.length === 1 ? "" : "s"} shown · ${scored} scored · ${all.length} in total</div>` +
@@ -501,6 +533,7 @@ function render() {
           <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
           <div class="meta">${[l.bedrooms && num(l.bedrooms) + " bed", l.floor_m2 && num(l.floor_m2) + " m²", l.property_type].filter(Boolean).join(" · ")}</div>
           <div class="meta">listed ${ageText(l.first_seen)} · ${twins[l.id] ? "on both sites" : esc(SITE[l.source] || l.source)}</div>
+          ${chips(l)}
           ${(() => { const f = soldFigure(l); return f && l.price ? `<div class="meta" style="color:var(--area)">sells for ~${short(f.value)} here (${f.value >= l.price ? "−" : "+"}${Math.abs((f.value - l.price) / f.value * 100).toFixed(0)}%)</div>` : ""; })()}
         </div>
         <div class="badge" style="background:${colour(S(l).score)}">${S(l).score == null ? "–" : (S(l).score > 0 ? "−" : "+") + Math.abs(S(l).score).toFixed(0) + "%"}<small>${S(l).score == null ? "no comps" : (S(l).basis === "sold" ? "vs sold" : S(l).comps + ((S(l).basis || "").startsWith("nearby_") ? " near" : " comps"))}</small></div>
@@ -532,7 +565,7 @@ for (const id of ["maxAge", "sortBy"]) {  // remember these between visits
   try { const saved = localStorage.getItem(id); if (saved && [...el.options].some(o => o.value === saved)) el.value = saved; } catch (e) {}
   el.addEventListener("input", () => { try { localStorage.setItem(id, el.value); } catch (e) {} });
 }
-["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly", "watchedOnly", "maxAge", "sortBy"].forEach(id =>
+["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly", "watchedOnly", "motivatedOnly", "maxAge", "sortBy"].forEach(id =>
   document.getElementById(id).addEventListener("input", render));
 const compareSel = document.getElementById("compare");
 compareSel.value = ["nearby", "sold"].includes(compareMode) ? compareMode : "suburb";
@@ -678,12 +711,14 @@ async function saveNoteRow(id, patch) {
                 floor_m2: notes[id]?.floor_m2 ?? null, erf_m2: notes[id]?.erf_m2 ?? null,
                 ...patch, updated_by: user?.email || null, updated_at: new Date().toISOString() };
   const { error } = await sb.from("listing_notes").upsert(row);
-  if (error) { alert("Couldn't save: " + error.message); return; }
-  notes[id] = row;
+  if (error) { alert("Couldn't save: " + error.message); return false; }
+  notes[id] = { ...(notes[id] || {}), ...row };
   render();
   const m = markersById[id];
-  if (m) cluster.zoomToShowLayer(m, () => m.openPopup());
+  if (m && !reopenQuiet) cluster.zoomToShowLayer(m, () => m.openPopup());
+  return true;
 }
+let reopenQuiet = false;  // saving from the Deals screen shouldn't jump the map around
 window.dfToggleWatch = id => saveNoteRow(id, { watched: !notes[id]?.watched });
 window.dfSaveNote = id => {
   const n = k => { const v = Number($(k + "-" + id)?.value); return v > 0 ? v : null; };
@@ -696,7 +731,7 @@ window.dfSaveNote = id => {
 // ---------------------------------------------------------------------------------------------
 // Dialogs: Settings (deal alert emails, account) and the flip calculator
 // ---------------------------------------------------------------------------------------------
-function openModal(html) { $("modalBody").innerHTML = html; $("modal").hidden = false; }
+function openModal(html) { $("modalBody").innerHTML = html; $("modalBody").dataset.view = ""; $("modal").hidden = false; }
 function closeModal() { $("modal").hidden = true; $("modalBody").innerHTML = ""; }
 $("modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("modal").hidden) closeModal(); });
@@ -711,7 +746,8 @@ async function openSettings() {
           <label>at least <input type="number" min="0" max="80" step="1" value="${esc(r.min_score)}" data-k="min_score">% below</label>
           <label><input type="checkbox" data-k="include_nearby" ${r.include_nearby ? "checked" : ""}> use nearby suburbs</label>
           <label><input type="checkbox" data-k="include_drops" ${r.include_drops ? "checked" : ""}> price drops</label>
-          <label><input type="checkbox" data-k="active" ${r.active ? "checked" : ""}> on</label>
+          <label><input type="checkbox" data-k="active" ${r.active ? "checked" : ""}> instant deal alerts</label>
+          <label><input type="checkbox" data-k="weekly_digest" ${r.weekly_digest ? "checked" : ""}> weekly summary (Mondays)</label>
         </div></div>
       <button class="watchbtn" data-del="${esc(r.id)}">Remove</button>
     </div>`).join("");
@@ -719,7 +755,8 @@ async function openSettings() {
     <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
     <h2>Settings</h2>
     <h3>Deal alert emails</h3>
-    <p class="meta">When a new listing (or a price drop) is at least this much below similar homes, these addresses get an email, usually within 15–30 minutes.</p>
+    <p class="meta"><b>Instant deal alerts</b>: when a new listing (or a price drop) is at least this much below similar homes, an email within 15–30 minutes.
+      <b>Weekly summary</b>: every Monday morning, the week's best new deals, price drops, motivated sellers and your deals, per area.</p>
     ${error ? `<p class="msg err">${esc(error.message)}</p>` : rows || `<p class="meta">No one gets alerts yet.</p>`}
     <form id="rcpAdd" style="display:flex;gap:8px;margin-top:12px">
       <input type="email" id="rcpEmail" placeholder="name@gmail.com" required style="flex:1">
@@ -742,7 +779,7 @@ async function openSettings() {
     if (error) alert("Couldn't save: " + error.message);
   }));
   $("modalBody").querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
-    if (!confirm("Stop sending deal alerts to this email?")) return;
+    if (!confirm("Stop sending deal alerts and the weekly summary to this email?")) return;
     await sb.from("alert_recipients").delete().eq("id", b.dataset.del);
     openSettings();
   }));
@@ -804,6 +841,7 @@ window.dfFlip = id => {
     <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
     <h2>Flip calculator</h2>
     <p class="meta">${esc(l.title || l.suburb)} · asking ${rand(l.price)}</p>
+    ${learnBox()}
     <form class="calc" id="calc" onsubmit="return false">
       <div><label class="field">Your offer (R)</label><input type="number" id="c_offer" step="10000" value="${l.price || ""}"></div>
       <div><label class="field">Resale value after renovation (R)</label><input type="number" id="c_arv" step="10000" value="${est ? round1k(est.value) : ""}"></div>
@@ -822,8 +860,17 @@ window.dfFlip = id => {
       <div><label class="field">Interest rate (%)</label><input type="number" id="c_rate" step="0.25" value="10.5"></div>
       <p class="meta full">Running costs start as this listing's levies + rates${l.levies || l.rates ? "" : " (not known)"} + R2 500 for insurance and utilities. Fees and commission are typical estimates; ask an attorney and agent for quotes.</p>
     </form>
-    <div class="calc-out" id="calcOut"></div>`);
+    <div class="calc-out" id="calcOut"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button class="primary small" type="button" id="calcSave">Save these numbers to the deal</button>
+      <span class="meta" id="calcSaveMsg">${notes[id]?.deal?.estimate ? "Saved " + ageText(notes[id].deal.estimate.saved_at) + " · saving again replaces it" : "Adds it to your Deals as “Interested”"}</span>
+    </div>`);
   const v = k => Number($("c_" + k).value) || 0;
+  const prev = notes[id]?.deal?.estimate;  // reopen with the numbers you saved last time
+  if (prev) for (const k of ["offer", "arv", "reno", "months", "monthly", "fees", "comm", "sell", "dep", "rate"])
+    if (prev.inputs?.[k] != null) $("c_" + k).value = prev.inputs[k];
+  if (prev?.inputs?.bond) $("c_bond").checked = true;
+  let last = null;
   function calc() {
     const offer = v("offer"), arv = v("arv"), reno = v("reno"), months = v("months");
     const duty = transferDuty(offer), fees = v("fees");
@@ -835,6 +882,9 @@ window.dfFlip = id => {
     const profit = arv - total;
     const cash = (bond ? offer - loan : offer) + duty + fees + reno + holding;
     const maxOffer = arv * .70 - reno;
+    last = { offer, arv, reno, months, total, profit, other: total - offer - reno, cash,
+             inputs: Object.fromEntries(["offer", "arv", "reno", "months", "monthly", "fees", "comm", "sell", "dep", "rate"].map(k => [k, v(k)])) };
+    last.inputs.bond = bond;
     const row = (k, val, cls = "") => `<div class="row ${cls}"><span>${k}</span><span>${val}</span></div>`;
     $("calcOut").innerHTML = !arv ? `<p class="meta">Enter a resale value to see the numbers.</p>` :
       row("Offer price", R(offer)) +
@@ -853,7 +903,193 @@ window.dfFlip = id => {
   }
   $("calc").addEventListener("input", calc);
   calc();
+  $("calcSave").addEventListener("click", async () => {
+    if (!last || !last.arv) { $("calcSaveMsg").textContent = "Enter a resale value first."; return; }
+    const deal = { ...(notes[id]?.deal || {}), estimate: { ...last, saved_at: new Date().toISOString() } };
+    if (deal.offer == null) deal.offer = last.offer;
+    if (deal.reno_budget == null) deal.reno_budget = last.reno;
+    reopenQuiet = true;
+    const ok = await saveNoteRow(id, { deal, ...(notes[id]?.stage ? {} : { stage: "interested", stage_at: new Date().toISOString() }),
+                                       watched: true, snapshot: snapshotOf(l) });
+    reopenQuiet = false;
+    if (ok) $("calcSaveMsg").textContent = "Saved to Deals ✓";
+  });
+  $("modalBody").addEventListener("click", e => {
+    const b = e.target.closest("[data-learn]");
+    if (!b) return;
+    const f = pastFlips();
+    $("c_reno").value = round1k(v("reno") * (1 + f.reno));
+    $("c_arv").value = round1k(v("arv") * (1 + f.resale));
+    calc(); b.disabled = true; b.textContent = "Adjusted ✓";
+  });
 };
+
+// ---------------------------------------------------------------------------------------------
+// Motivated-seller signals and the deal pipeline
+// ---------------------------------------------------------------------------------------------
+const STAGES = [["interested", "Interested"], ["viewing", "Viewing"], ["offer", "Offer made"], ["bought", "Bought"],
+                ["renovating", "Renovating"], ["for_sale", "On the market"], ["sold", "Sold"], ["passed", "Passed on"]];
+const STAGE_TEXT = Object.fromEntries(STAGES);
+const TAGS = [["deceased", "Deceased estate"], ["urgent", "Urgent sale"], ["fixer", "Fixer-upper"],
+              ["auction", "Auction"], ["bank", "Bank sale"], ["divorce", "Divorce / emigration"]];
+const TAG_TEXT = Object.fromEntries(TAGS);
+function signals(l) {
+  const out = [], f = l.flags || [], h = l.price_history || [];
+  if (f.includes("dropped_twice")) out.push(`Dropped ${l.price_drops}×`);
+  if (f.includes("big_drop") && h[0]?.[1]) out.push(`${Math.round((h[0][1] - l.price) / h[0][1] * 100)}% below first price`);
+  if (f.includes("long_listed")) out.push(`${daysSince(l.first_seen)}+ days on the market`);
+  const tags = notes[l.id]?.tags || [];
+  if (f.includes("auction") && !tags.includes("auction")) out.push("Auction");
+  if (f.includes("bank_sale") && !tags.includes("bank")) out.push("Bank sale");
+  return out.concat(tags.map(t => TAG_TEXT[t] || t));
+}
+function chips(l) {
+  const st = notes[l.id]?.stage, sig = signals(l);
+  if (!st && !sig.length) return "";
+  return `<div class="chips">${st ? `<span class="chip stage">${esc(STAGE_TEXT[st] || st)}</span>` : ""}${sig.map(t => `<span class="chip">⚑ ${esc(t)}</span>`).join("")}</div>`;
+}
+const snapshotOf = l => l ? { title: l.title, suburb: l.suburb, city: l.city, price: l.price, url: l.url, image_url: l.image_url,
+  bedrooms: l.bedrooms, property_type: l.property_type, floor_m2: l.floor_m2 } : null;
+const findListing = id => all.find(x => x.id === id) || Object.values(twins).flat().find(x => x.id === id) || null;
+
+window.dfSetStage = async (id, stage) => {
+  const l = findListing(id);
+  await saveNoteRow(id, { stage: stage || null, stage_at: new Date().toISOString(), ...(stage ? { watched: true } : {}),
+                          snapshot: snapshotOf(l) || notes[id]?.snapshot || null });
+  if (!$("modal").hidden && $("modalBody").dataset.view === "deals") dfDeals();
+};
+window.dfToggleTag = (id, tag) => {
+  const tags = new Set(notes[id]?.tags || []);
+  tags.has(tag) ? tags.delete(tag) : tags.add(tag);
+  return saveNoteRow(id, { tags: [...tags] });
+};
+
+// What finished flips teach: how far renovations ran over budget and how resale compared with the estimate
+function pastFlips() {
+  const done = Object.values(notes).filter(n => n.stage === "sold" && n.deal?.estimate);
+  const med = xs => xs.length ? quantile(xs, .5) : null;
+  const reno = med(done.filter(n => n.deal.reno_actual && n.deal.estimate.reno).map(n => n.deal.reno_actual / n.deal.estimate.reno - 1));
+  const resale = med(done.filter(n => n.deal.sale_price && n.deal.estimate.arv).map(n => n.deal.sale_price / n.deal.estimate.arv - 1));
+  const months = med(done.filter(n => n.deal.purchase_date && n.deal.sale_date)
+    .map(n => (new Date(n.deal.sale_date) - new Date(n.deal.purchase_date)) / (30.4 * DAY)));
+  return { n: done.length, reno, resale, months };
+}
+function learnBox() {
+  const f = pastFlips();
+  if (!f.n || (f.reno == null && f.resale == null)) return "";
+  const pct = x => `${Math.abs(x * 100).toFixed(0)}% ${x >= 0 ? "more" : "less"}`;
+  return `<div class="learn">From your ${f.n} finished flip${f.n === 1 ? "" : "s"}:
+    ${f.reno != null ? `renovations cost <b>${pct(f.reno)}</b> than budgeted` : ""}${f.reno != null && f.resale != null ? "; " : ""}
+    ${f.resale != null ? `homes sold for <b>${pct(f.resale)}</b> than the resale estimate` : ""}${f.months != null ? `; about <b>${f.months.toFixed(0)} months</b> from transfer to sale` : ""}.
+    ${f.reno != null || f.resale != null ? `<button type="button" class="areabtn" data-learn>Adjust the numbers below to match</button>` : ""}</div>`;
+}
+
+// ----- Deals screen ------------------------------------------------------------------------------
+function dealProfit(n) {
+  const d = n.deal || {};
+  if (!d.sale_price || !d.purchase_price) return null;
+  return d.sale_price - d.purchase_price - (d.reno_actual ?? d.reno_budget ?? 0) - (d.other_costs ?? d.estimate?.other ?? 0);
+}
+window.dfDeals = () => {
+  const deals = Object.entries(notes).filter(([, n]) => n.stage);
+  const card = ([id, n]) => {
+    const l = findListing(id), s = l || n.snapshot || {}, d = n.deal || {};
+    const nums = [d.offer && `offer ${short(d.offer)}`, d.purchase_price && `bought ${short(d.purchase_price)}`,
+                  d.sale_price && `sold ${short(d.sale_price)}`, d.estimate && `estimated profit ${short(d.estimate.profit)}`,
+                  dealProfit(n) != null && `<b>actual profit ${short(dealProfit(n))}</b>`].filter(Boolean).join(" · ");
+    return `<div class="deal">${s.image_url ? `<img class="thumb" src="${esc(s.image_url)}" alt="" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` : `<div class="thumb none">no photo</div>`}
+      <div><b>${esc(s.title || s.suburb || id)}</b><div class="meta">${esc(s.suburb || "")}${s.city ? ", " + esc(s.city) : ""} · asking ${rand(s.price)}${l ? "" : " · no longer advertised"}</div>
+        ${nums ? `<div class="meta">${nums}</div>` : ""}
+        ${(n.tags || []).length ? `<div class="chips">${n.tags.map(t => `<span class="chip">⚑ ${esc(TAG_TEXT[t] || t)}</span>`).join("")}</div>` : ""}
+        <div class="btns">
+          <select class="stagesel" onchange="dfSetStage('${esc(id)}', this.value)">${STAGES.map(([k, t]) => `<option value="${k}" ${n.stage === k ? "selected" : ""}>${t}</option>`).join("")}<option value="">Remove from Deals</option></select>
+          <button class="watchbtn" onclick="dfDeal('${esc(id)}')">Deal numbers</button>
+          ${l ? `<button class="watchbtn" onclick="dfShowOnMap('${esc(id)}')">Show on map</button>` : ""}
+          ${s.url ? `<a class="watchbtn" style="text-decoration:none" href="${esc(s.url)}" target="_blank" rel="noopener">Ad ↗</a>` : ""}
+        </div></div></div>`;
+  };
+  const sold = deals.filter(([, n]) => n.stage === "sold");
+  const profits = sold.map(([, n]) => dealProfit(n)).filter(x => x != null);
+  const f = pastFlips();
+  const active = deals.filter(([, n]) => !["sold", "passed"].includes(n.stage)).length;
+  openModal(`
+    <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
+    <h2>Deals</h2>
+    <p class="meta">Every home you're working on, from first look to sold. Set a stage from a listing's popup (or save the flip calculator). Shared between you and your dad.</p>
+    <div class="stats">
+      <div class="stat"><span class="meta">In progress</span><b>${active}</b></div>
+      <div class="stat"><span class="meta">Flips sold</span><b>${sold.length}</b></div>
+      <div class="stat"><span class="meta">Total profit</span><b>${profits.length ? short(profits.reduce((a, b) => a + b, 0)) : "–"}</b></div>
+      <div class="stat"><span class="meta">Reno vs budget</span><b>${f.reno != null ? (f.reno >= 0 ? "+" : "−") + Math.abs(f.reno * 100).toFixed(0) + "%" : "–"}</b></div>
+    </div>
+    ${deals.length ? STAGES.map(([k, t]) => {
+      const here = deals.filter(([, n]) => n.stage === k);
+      if (!here.length) return "";
+      const body = here.sort((a, b) => new Date(b[1].stage_at || 0) - new Date(a[1].stage_at || 0)).map(card).join("");
+      return k === "passed"
+        ? `<details class="pipe-stage"><summary class="meta">${t} (${here.length})</summary>${body}</details>`
+        : `<div class="pipe-stage"><h3>${t}<span class="meta">${here.length}</span></h3>${body}</div>`;
+    }).join("") : `<p class="meta" style="margin-top:14px"><i>No deals yet.</i> Open a listing and set its <b>Deal stage</b>, or use <b>Save these numbers to the deal</b> in the flip calculator.</p>`}`);
+  $("modalBody").dataset.view = "deals";
+};
+window.dfShowOnMap = id => {
+  closeModal();
+  if (isPhone()) setView("map");
+  const m = markersById[id];
+  if (m) cluster.zoomToShowLayer(m, () => m.openPopup());
+  else alert("It's hidden by the current filters or area tab. Try “All areas” and “Listed: any time”.");
+};
+window.dfDeal = id => {
+  const n = notes[id] || {}, d = n.deal || {}, e = d.estimate, s = findListing(id) || n.snapshot || {};
+  const fld = (k, label, type = "number", hint = "") => `<div><label class="field">${label}</label>
+    <input type="${type}" id="d_${k}" ${type === "number" ? 'step="1000"' : ""} value="${esc(d[k] ?? "")}" placeholder="${esc(hint)}"></div>`;
+  openModal(`
+    <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
+    <h2>Deal numbers</h2>
+    <p class="meta">${esc(s.title || s.suburb || id)} · ${esc(STAGE_TEXT[n.stage] || "")}</p>
+    ${e ? `<div class="learn">Calculator estimate (${ageText(e.saved_at)}): offer ${short(e.offer)}, renovation ${short(e.reno)},
+      resale ${short(e.arv)}, other costs ${short(e.other)}, <b>profit ${short(e.profit)}</b>.</div>` : `<p class="meta">Tip: save the flip calculator for this home too, so you can compare your estimate with what really happened.</p>`}
+    <form class="calc" id="dealForm" onsubmit="return false">
+      ${fld("offer", "Offer (R)", "number", e ? Math.round(e.offer) : "")}
+      ${fld("purchase_price", "Bought for (R)")}
+      ${fld("purchase_date", "Transfer date", "date")}
+      ${fld("reno_budget", "Renovation budget (R)", "number", e ? Math.round(e.reno) : "")}
+      ${fld("reno_actual", "Renovation actually spent (R)")}
+      ${fld("other_costs", "Other costs actually paid (R)", "number", e ? Math.round(e.other) : "")}
+      <p class="meta full">Other costs: transfer duty, attorney fees, rates, levies, insurance, bond interest, agent commission.</p>
+      ${fld("sale_price", "Sold for (R)")}
+      ${fld("sale_date", "Sale date", "date")}
+    </form>
+    <div class="calc-out" id="dealOut"></div>
+    <button class="primary" id="dealSave">Save</button><p class="msg" id="dealMsg"></p>`);
+  const read = () => {
+    const out = { ...d };
+    for (const k of ["offer", "purchase_price", "reno_budget", "reno_actual", "other_costs", "sale_price"]) {
+      const v = $("d_" + k).value; out[k] = v === "" ? null : Number(v);
+    }
+    for (const k of ["purchase_date", "sale_date"]) out[k] = $("d_" + k).value || null;
+    return out;
+  };
+  const show = () => {
+    const x = read(), p = dealProfit({ deal: x });
+    const row = (k, val, cls = "") => `<div class="row ${cls}"><span>${k}</span><span>${val}</span></div>`;
+    $("dealOut").innerHTML = p == null ? `<p class="meta">Fill in “Bought for” and “Sold for” to see the actual profit.</p>` :
+      row("Actual profit before tax", R(p), "total") +
+      (e ? row("Estimated profit", R(e.profit)) + row("Difference", (p >= e.profit ? "+" : "−") + R(Math.abs(p - e.profit))) : "") +
+      (x.reno_actual && (x.reno_budget || e?.reno) ? row("Renovation vs budget", `${((x.reno_actual / (x.reno_budget || e.reno) - 1) * 100).toFixed(0)}%`) : "");
+  };
+  $("dealForm").addEventListener("input", show); show();
+  $("dealSave").addEventListener("click", async () => {
+    const x = read();
+    const stage = x.sale_price ? "sold" : (x.purchase_price && ["interested", "viewing", "offer"].includes(n.stage)) ? "bought" : n.stage;
+    reopenQuiet = true;
+    const ok = await saveNoteRow(id, { deal: x, ...(stage !== n.stage ? { stage, stage_at: new Date().toISOString() } : {}) });
+    reopenQuiet = false;
+    if (ok) dfDeals();
+  });
+};
+$("dealsBtn").addEventListener("click", dfDeals);
+$("viewDeals").addEventListener("click", dfDeals);
 
 // ---------------------------------------------------------------------------------------------
 // Areas: suburb outlines (OpenStreetMap, or drawn here) and what homes actually sell for in each

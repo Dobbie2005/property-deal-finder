@@ -534,3 +534,51 @@ def test_listings_go_inside_their_suburb_outline_and_keep_its_region():
     assert areas_mod.place_pins_in_areas(rows, pins) == 1
     assert rows[0]["pin_level"] == "area" and rows[0]["region"] == "tzaneen" and abs(rows[0]["lat"] - (-23.94)) < 1e-6
     assert rows[1]["pin_level"] == "address" and rows[2]["pin_level"] == "town"
+
+
+# --- Motivated sellers, weekly summary ------------------------------------------------------
+from dealfinder import signals, digest as digest_mod
+
+
+def test_price_history_counts_drops_and_flags():
+    t0 = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    r = {"price": 2_000_000, "first_price": 2_000_000, "first_seen": t0, "title": "3 Bedroom House in Bendor"}
+    signals.update_price_history(r, t0)
+    for day, price in ((20, 1_900_000), (40, 1_900_000), (50, 1_750_000)):
+        r["price"] = price
+        signals.update_price_history(r, t0 + timedelta(days=day))
+    assert [p for _, p in r["price_history"]] == [2_000_000, 1_900_000, 1_750_000]
+    assert r["price_drops"] == 2
+    flags = signals.seller_flags(r, t0 + timedelta(days=70))
+    assert flags == ["dropped_twice", "big_drop", "long_listed"]
+    assert signals.drops_since(r, t0 + timedelta(days=45)) == (1_900_000, 1_750_000)
+    assert signals.drops_since(r, t0 + timedelta(days=55)) is None
+
+
+def test_auction_and_bank_sale_flags_from_agency_or_title():
+    now = datetime(2026, 10, 24, tzinfo=timezone.utc)
+    assert "auction" in signals.seller_flags({"agency": "High Street Auctions", "first_seen": now}, now)
+    assert "bank_sale" in signals.seller_flags({"title": "Bank repossessed 3 bed house", "first_seen": now}, now)
+    assert signals.seller_flags({"agency": "Keller Williams North", "first_seen": now}, now) == []
+
+
+def test_weekly_digest_content_and_timing():
+    now = datetime(2026, 10, 26, 3, 20, tzinfo=timezone.utc)  # Monday 05:20 in South Africa
+    fresh = now - timedelta(days=2)
+    rows = [
+        {"id": "a", "region": "polokwane", "suburb": "Bendor", "city": "Polokwane", "price": 1_500_000, "deal_score": 22,
+         "first_seen": fresh, "last_seen": fresh, "url": "https://x/a", "flags": []},
+        {"id": "b", "region": "durbanville", "suburb": "Sonstraal", "city": "Durbanville", "price": 2_700_000,
+         "first_seen": now - timedelta(days=40), "last_seen": fresh, "url": "https://x/b", "flags": ["dropped_twice"],
+         "price_history": [["2026-09-17", 3_000_000], ["2026-10-01", 2_900_000], ["2026-10-24", 2_700_000]]},
+        {"id": "c", "region": "durbanville", "suburb": "Aurora", "city": "Durbanville", "price": 3_000_000,
+         "first_seen": fresh, "last_seen": fresh, "url": "https://x/c", "duplicate_of": "b"},
+    ]
+    notes = [{"listing_id": "b", "stage": "viewing", "tags": ["deceased"]}]
+    subject, html_out = digest_mod.build_digest(rows, notes, now)
+    assert subject == "Weekly property summary: 1 new listing, 1 price drop"
+    assert "22% below" in html_out and "dropped from R 2 900 000" in html_out
+    assert "deceased estate" in html_out and "<b>Viewing</b>" in html_out and "Aurora" not in html_out
+    assert digest_mod.week_key(now) == "2026-W44"
+    assert digest_mod.due(set(), now) and not digest_mod.due({"2026-W44"}, now)
+    assert not digest_mod.due(set(), datetime(2026, 10, 25, 22, 30, tzinfo=timezone.utc))  # Mon 00:30 SAST: wait

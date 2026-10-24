@@ -149,3 +149,27 @@ trends, a Lightstone report or an agent (for example "3-bed houses, sold average
 - the flip calculator offers it as a check on the resale value,
 - Filters → Compare with → **sold prices you saved** colours and sorts the map by it (suburbs without
   a figure fall back to the usual comparison).
+
+## Motivated sellers
+The listing check keeps each listing's price history and flags: **price dropped more than once**,
+**10%+ below the first price**, **60+ days on the market**, and **auction** / **bank sale** (from the
+agency name or title). Alert emails don't include the ad's description, so in each popup you can tick
+what the ad says: deceased estate, urgent sale, fixer-upper, auction, bank sale, divorce / emigration.
+Filters → **motivated sellers** shows only flagged listings.
+
+## Deals (pipeline)
+Set a listing's **Deal stage** in its popup (interested → viewing → offer made → bought → renovating →
+on the market → sold, or passed on), or press **Save these numbers to the deal** in the flip calculator.
+**Deals** (header, or the third tab on phones) lists them all. **Deal numbers** records what you really
+paid, spent and sold for; once flips are sold, the calculator shows how far renovations ran over budget
+and how resale compared with the estimate, and can adjust new estimates to match. Listings in Deals or on
+the shortlist are never deleted by the clean-up.
+
+## Weekly summary email
+Every Monday morning the listing check makes a summary per area (best new deals, price drops, motivated
+sellers, your deals). `apps_script/Digest.gs` emails it: add it as a second file in the Apps Script project
+and run `setupWeekly` once. Who gets it: Settings → tick **weekly summary**.
+
+## Bank sales and auctions
+Every email in the bot inbox is copied over. If one looks like listings but can't be read (a new site),
+the run summary says so; share an example and a reader for it can be added.

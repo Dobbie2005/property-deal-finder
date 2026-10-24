@@ -23,6 +23,8 @@ from dealfinder import config
 from dealfinder.details import ListingPageReader, parse_property24_page
 from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
 from dealfinder.areas import OutlineFinder, area_pins, place_pins_in_areas, update_areas
+from dealfinder import digest
+from dealfinder.signals import seller_flags, update_price_history
 from dealfinder.scoring import assign_region, mark_duplicates, norm, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
 
@@ -30,7 +32,8 @@ COLUMNS = ["id", "source", "url", "title", "property_type", "price", "bedrooms",
            "floor_m2", "erf_m2", "suburb", "city", "province", "region", "lat", "lng", "last_seen",
            "suburb_median", "comps_count", "deal_score", "score_basis", "image_url",
            "wide_median", "wide_comps", "wide_score", "wide_basis", "trends_url",
-           "address", "pin_level", "duplicate_of", "levies", "rates", "details_checked"]
+           "address", "pin_level", "duplicate_of", "levies", "rates", "details_checked",
+           "price_history", "price_drops", "agency", "flags"]
 MANUAL_CSV = Path(__file__).parent / "data" / "manual_listings.csv"
 
 
@@ -304,13 +307,17 @@ def main() -> int:
             all_rows[rec["id"]] = rec
             new_ids.add(rec["id"])
 
-    # Forget listings that haven't appeared in any alert for a long time
+    # Forget listings that haven't appeared in any alert for a long time (not ones on your
+    # shortlist or in your deal pipeline)
+    note_rows = db.select_all("listing_notes", order="listing_id")
+    keep = {n["listing_id"] for n in note_rows if n.get("watched") or n.get("stage")}
     keep_cutoff = now - timedelta(days=config.KEEP_LISTINGS_DAYS)
-    stale = [i for i, r in all_rows.items() if r.get("last_seen") and r["last_seen"] < keep_cutoff]
+    stale = [i for i, r in all_rows.items() if r.get("last_seen") and r["last_seen"] < keep_cutoff and i not in keep]
     for i in stale:
         del all_rows[i]
-    if stale:
-        db.delete_where("listings", {"last_seen": f"lt.{keep_cutoff.isoformat()}"})
+    for k in range(0, len(stale), 100):
+        ids = ",".join('"' + x.replace('"', "") + '"' for x in stale[k:k + 100])
+        db.delete_where("listings", {"id": f"in.({ids})"})
 
     # 3) Map coordinates + region ------------------------------------------------
     # Private Property gives a metro like "Cape Town" (or nothing) as the town: forget those and
@@ -350,7 +357,10 @@ def main() -> int:
     rows = list(all_rows.values())
     reader = ListingPageReader(config.MAX_PAGE_VISITS_PER_RUN)
     n_details = add_listing_details(rows, reader, now) if config.READ_LISTING_PAGES else None
-    n_typed = apply_typed_sizes(rows, db.select_all("listing_notes", order="listing_id"))
+    n_typed = apply_typed_sizes(rows, note_rows)
+    for r in rows:  # price history and motivated-seller signals
+        update_price_history(r, now)
+        r["flags"] = seller_flags(r, now)
     n_dupes = mark_duplicates(rows)
     share_details_with_twins(rows)
     score_listings(rows, now)
@@ -375,6 +385,17 @@ def main() -> int:
     queued = queue_deal_alerts(rows, new_ids, drops)
     if queued:
         db.upsert("deal_alerts", queued)
+
+    # Weekly summary email (the Gmail script sends it to everyone with "weekly summary" ticked)
+    digest_line = "- Weekly summary: already made this week"
+    try:
+        weeks = {d["week"] for d in db.select_all("digests", order="id", select="week")}
+        if digest.due(weeks, now):
+            subject, body = digest.build_digest(rows, note_rows, now)
+            db.upsert("digests", [{"week": digest.week_key(now), "subject": subject, "html": body}])
+            digest_line = f"- Weekly summary: made (\"{subject}\"), the Gmail script emails it within the hour"
+    except Exception as e:  # noqa: BLE001
+        digest_line = f"- Weekly summary: failed ({str(e)[:150]})"
 
     # Mark the copied emails as done, and clear out old ones to keep the database small
     db.mark_processed("raw_emails", [r["id"] for r in raw])
@@ -423,6 +444,8 @@ def main() -> int:
         f"- Homes listed on both sites (shown once): {n_dupes}",
         f"- Deal alerts queued for email: {len(queued)}",
         area_line,
+        digest_line,
+        f"- Motivated-seller flags: {sum(bool(r.get('flags')) for r in rows if not r.get('duplicate_of'))} listings",
         *notes,
         "",
         "### Top 10 deals right now",
