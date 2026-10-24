@@ -354,8 +354,10 @@ def main() -> int:
     # Suburb outlines for the map's Areas button (nice-to-have: never stops the run)
     try:
         area_info = update_areas(db, rows, OutlineFinder(), now)
-        area_line = (f"- Suburb outlines: {area_info['found']} found on OpenStreetMap this run"
-                     f" ({area_info['checked']} checked, {area_info['areas']} suburbs in total)")
+        area_line = (f"- Suburb outlines: {area_info['official']} official boundaries matched"
+                     f" ({area_info['official_missed']} not found), {area_info['found']} from OpenStreetMap"
+                     f" ({area_info['checked']} checked), {area_info['areas']} suburbs with listings")
+        area_line += "".join(f"\n  - {n}" for n in area_info["notes"])
     except Exception as e:  # noqa: BLE001
         area_line = f"- Suburb outlines: skipped ({str(e)[:150]})"
 

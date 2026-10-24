@@ -3,6 +3,7 @@
 Each suburb that has listings gets a row in the `areas` table. The job looks up its outline on
 OpenStreetMap once; where OpenStreetMap only has a point for the suburb, the outline can be drawn
 on the map instead (those are never overwritten here)."""
+import math
 import statistics
 import time
 from datetime import datetime, timedelta
@@ -92,22 +93,157 @@ class OutlineFinder:
             return []
 
 
-def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime) -> dict:
-    """Keep the areas table in step with the listings, and fetch missing outlines."""
+# --- Official boundaries (free, published by government GIS servers) -----------------------------
+# Tried first: they're the real suburb edges. Each source is (label, query URL, name field, regions).
+GIS = "https://gis.westerncape.gov.za/server2/rest/services/SpatialDataWarehouse"
+OFFICIAL_SOURCES = [
+    ("City of Cape Town official suburbs", f"{GIS}/CoCT_Management_Boundaries/MapServer/23/query", "OFC_SBRB_N", {"durbanville"}),
+    ("Stats SA census sub-places", f"{GIS}/StatsSA_CensusBoundaries/MapServer/1/query", "SP_NAME", None),
+]
+OFFICIAL_RECHECK_DAYS = 30
+MAX_KM_EXACT = 5    # a same-name suburb further than this from the suburb's pins is a different place
+MAX_KM_FUZZY = 3    # 'Sonstraal' -> 'Sonstraal Heights' only when it's right there
+
+
+def _bbox_centre(geo: dict) -> tuple[float, float]:
+    pts = [pt for poly in (geo["coordinates"] if geo["type"] == "MultiPolygon" else [geo["coordinates"]])
+           for ring in poly for pt in ring]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return (min(ys) + max(ys)) / 2, (min(xs) + max(xs)) / 2
+
+
+def _merge(geos: list[dict]) -> dict:
+    if len(geos) == 1:
+        return geos[0]
+    polys = []
+    for g in geos:
+        polys.extend(g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]])
+    return {"type": "MultiPolygon", "coordinates": polys}
+
+
+class OfficialOutlines:
+    """Downloads the official suburb shapes around each region once per run, then matches by name."""
+
+    def __init__(self):
+        self.cache: dict[str, list] = {}
+        self.failed: set[str] = set()
+        self.notes: list[str] = []
+
+    def _query(self, url: str, field: str, region: str) -> list[dict]:
+        r = config.REGIONS[region]
+        dlat = r["radius_km"] / 110.6
+        dlng = r["radius_km"] / (111.3 * math.cos(math.radians(r["lat"])))
+        params = {"where": "1=1", "outFields": field, "returnGeometry": "true", "f": "geojson",
+                  "geometry": f"{r['lng'] - dlng},{r['lat'] - dlat},{r['lng'] + dlng},{r['lat'] + dlat}",
+                  "geometryType": "esriGeometryEnvelope", "inSR": 4326, "spatialRel": "esriSpatialRelIntersects",
+                  "outSR": 4326, "maxAllowableOffset": 0.00008, "geometryPrecision": 5}
+        res = requests.get(url, params=params, headers={"User-Agent": UA}, timeout=90)
+        res.raise_for_status()
+        data = res.json()
+        if "error" in data:
+            raise RuntimeError(str(data["error"])[:200])
+        out = []
+        for f in data.get("features") or []:
+            geo, name = f.get("geometry") or {}, (f.get("properties") or {}).get(field)
+            if name and geo.get("type") in ("Polygon", "MultiPolygon") and geo.get("coordinates"):
+                out.append({"name": str(name).strip(), "geometry": geo, "centre": _bbox_centre(geo)})
+        return out
+
+    def shapes(self, region: str) -> list[tuple[str, list[dict]]]:
+        if region not in self.cache:
+            sources = []
+            for label, url, field, regions in OFFICIAL_SOURCES:
+                if regions and region not in regions:
+                    continue
+                try:
+                    feats = self._query(url, field, region)
+                    sources.append((label, feats))
+                    self.notes.append(f"{label} around {region}: {len(feats)} shapes")
+                except Exception as e:  # noqa: BLE001  (try again next run)
+                    self.failed.add(region)
+                    self.notes.append(f"{label} around {region}: failed ({str(e)[:120]})")
+            self.cache[region] = sources
+        return self.cache[region]
+
+
+def match_official(a: dict, sources: list[tuple[str, list[dict]]]) -> Optional[tuple[dict, str, str]]:
+    """(geometry, official name, source label) for this suburb, or None."""
+    target = norm(a["name"])
+    if not target:
+        return None
+    variants = {target}
+    for suffix in ("central", "cbd", "ah", "smallholdings"):
+        if target.endswith(suffix) and len(target) > len(suffix) + 3:
+            variants.add(target[: -len(suffix)])
+    centre = (a.get("lat"), a.get("lng"))
+    if centre[0] is None and a.get("city") in config.TOWNS:
+        centre, max_exact = config.TOWNS[a["city"]][:2], 15  # only the town is known
+    else:
+        max_exact = MAX_KM_EXACT
+    dist = (lambda f: haversine_km(f["centre"][0], f["centre"][1], centre[0], centre[1])) if centre[0] is not None \
+        else (lambda f: 0.0)
+    for label, feats in sources:
+        exact = [f for f in feats if norm(f["name"]) in variants and dist(f) <= max_exact]
+        if not exact and centre[0] is not None and a.get("lat") is not None:
+            exact = [f for f in feats if len(norm(f["name"])) >= 5 and dist(f) <= MAX_KM_FUZZY and
+                     (norm(f["name"]).startswith(target) or target.startswith(norm(f["name"])))]
+        if exact:
+            best = min(exact, key=dist)
+            same = [f for f in exact if f["name"] == best["name"]]  # one suburb split into several pieces
+            return _merge([f["geometry"] for f in same]), best["name"], label
+    return None
+
+
+def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime,
+                 official: Optional[OfficialOutlines] = None) -> dict:
+    """Keep the areas table in step with the listings, and fetch missing outlines:
+    official boundaries first, then OpenStreetMap. Outlines drawn on the map are never touched."""
+    official = official or OfficialOutlines()
     areas = collect_areas(rows)
-    existing = {a["key"]: a for a in db.select_all("areas", order="key",
-                                                    select="key,boundary_source,boundary_checked_at")}
+    existing = {a["key"]: a for a in db.select_all(
+        "areas", order="key",
+        select="key,name,city,region,lat,lng,boundary_source,boundary_checked_at,official_checked_at")}
     if areas:
         db.upsert("areas", list(areas.values()))  # names, regions and centres only
 
+    def older(ts, days):
+        return not ts or datetime.fromisoformat(str(ts).replace("Z", "+00:00")) <= now - timedelta(days=days)
+
+    # Every suburb: those with listings, plus ones added by hand on the map
+    candidates = {k: {**v, **areas.get(k, {})} for k, v in existing.items()}
+    candidates.update({k: {**existing.get(k, {}), **v} for k, v in areas.items()})
+
+    # 1) Official boundaries
+    got, missed = [], []
+    for key, a in candidates.items():
+        if a.get("boundary_source") in ("official", "drawn") or a.get("region") not in config.REGIONS:
+            continue
+        if not older(a.get("official_checked_at"), OFFICIAL_RECHECK_DAYS):
+            continue
+        sources = official.shapes(a["region"])
+        if a["region"] in official.failed:
+            continue
+        m = match_official(a, sources)
+        if m:
+            got.append({"key": key, "name": a["name"], "boundary": m[0], "boundary_source": "official",
+                        "official_name": f"{m[1]} ({m[2]})", "official_checked_at": now.isoformat(),
+                        "boundary_checked_at": now.isoformat()})
+        else:
+            missed.append({"key": key, "name": a["name"], "official_checked_at": now.isoformat()})
+    if got:
+        db.upsert("areas", got)
+    if missed:
+        db.upsert("areas", missed)
+    done = {r["key"] for r in got}
+
+    # 2) OpenStreetMap, for the rest
     checked, found = [], 0
     for key, a in sorted(areas.items(), key=lambda kv: kv[0] in existing):  # new suburbs first
         ex = existing.get(key) or {}
         src = ex.get("boundary_source")
-        if src in ("osm", "drawn"):
+        if key in done or src in ("osm", "drawn", "official"):
             continue
-        last = ex.get("boundary_checked_at")
-        if src == "none" and last and datetime.fromisoformat(str(last).replace("Z", "+00:00")) > now - timedelta(days=RECHECK_DAYS):
+        if src == "none" and not older(ex.get("boundary_checked_at"), RECHECK_DAYS):
             continue
         if not finder.can_search():
             break
@@ -117,4 +253,5 @@ def update_areas(db, rows: list[dict], finder: OutlineFinder, now: datetime) -> 
                         "boundary_source": "osm" if geo else "none", "boundary_checked_at": now.isoformat()})
     if checked:
         db.upsert("areas", checked)
-    return {"areas": len(areas), "checked": len(checked), "found": found}
+    return {"areas": len(areas), "checked": len(checked), "found": found,
+            "official": len(got), "official_missed": len(missed), "notes": official.notes}

@@ -131,8 +131,9 @@ Property24 blocks automated visits to its listing pages, so sizes aren't read au
 floor and plot size from the ad into a listing's popup and press Save; the next run uses them.
 
 ## Areas (suburb outlines and sold prices)
-The **Areas** button outlines each suburb that has listings. Outlines come from OpenStreetMap
-(each suburb is looked up once by the listing check). Most South African suburbs are only a point on
+The **Areas** button outlines each suburb that has listings. Outlines come, in this order, from the
+**City of Cape Town's official suburb boundaries** (Durbanville & surrounds), **Stats SA census
+sub-places** (via the Western Cape government GIS server), then OpenStreetMap. Most South African suburbs are only a point on
 OpenStreetMap, so those get a **rough dotted outline** (the ground closer to that suburb than to its
 neighbours). Open the area and choose **Adjust outline** to drag its edge into place, or **Start again**
 to draw it. Your outlines are never overwritten: the database itself refuses changes to them from

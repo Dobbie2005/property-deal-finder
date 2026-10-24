@@ -439,10 +439,61 @@ def test_update_areas_never_overwrites_drawn_outlines_and_rechecks_later():
     ])
     good = {"class": "place", "geojson": _sq(-33.835, 18.655), "boundingbox": ["-33.835", "-33.825", "18.655", "18.665"]}
     finder = _Finder({"Sonstraal": [good]})
-    info = areas_mod.update_areas(db, rows, finder, now)
+    info = areas_mod.update_areas(db, rows, finder, now, official=_NoOfficial())
     assert sorted(finder.asked) == ["Kenridge", "Sonstraal"]  # drawn one skipped, recent "none" skipped
-    assert info == {"areas": 4, "checked": 2, "found": 1}
+    assert (info["areas"], info["checked"], info["found"], info["official"]) == (4, 2, 1, 0)
     checked = {r["key"]: r for r in db.upserts[-1]}
     assert checked["durbanville/sonstraal"]["boundary_source"] == "osm"
     assert checked["durbanville/kenridge"]["boundary_source"] == "none"
     assert all("boundary" not in r for r in db.upserts[0])  # the first save never touches outlines
+
+
+class _NoOfficial(areas_mod.OfficialOutlines):
+    def __init__(self, sources=None):
+        super().__init__()
+        self.sources, self.asked = sources or [], []
+
+    def shapes(self, region):
+        self.asked.append(region)
+        return self.sources
+
+
+def _feat(name, lat, lng, d=0.005):
+    g = _sq(lat, lng, d)
+    return {"name": name, "geometry": g, "centre": areas_mod._bbox_centre(g)}
+
+
+def test_match_official_by_name_distance_and_suffix():
+    feats = [("City of Cape Town official suburbs", [
+        _feat("SONSTRAAL HEIGHTS", -33.845, 18.675), _feat("DURBANVILLE", -33.835, 18.645),
+        _feat("AURORA", -33.83, 18.63), _feat("AURORA", -33.826, 18.63),       # one suburb in two pieces
+        _feat("PROTEA HEIGHTS", -34.05, 18.47),                               # same name, far away
+    ])]
+    m = areas_mod.match_official({"name": "Sonstraal", "city": "Durbanville", "lat": -33.843, "lng": 18.678}, feats)
+    assert m and m[1] == "SONSTRAAL HEIGHTS"
+    m = areas_mod.match_official({"name": "Durbanville Central", "city": "Durbanville", "lat": None, "lng": None}, feats)
+    assert m and m[1] == "DURBANVILLE"                                          # "Central" dropped, town centre used
+    m = areas_mod.match_official({"name": "Aurora", "city": "Durbanville", "lat": -33.83, "lng": 18.632}, feats)
+    assert m and m[0]["type"] == "MultiPolygon"
+    assert areas_mod.match_official({"name": "Protea Heights", "city": "Brackenfell", "lat": -33.882, "lng": 18.714}, feats) is None
+
+
+def test_official_outlines_win_and_drawn_ones_stay():
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 24, tzinfo=timezone.utc)
+    rows = [{"suburb": s, "city": "Durbanville", "region": "durbanville", "lat": -33.843, "lng": 18.678, "pin_level": "suburb"}
+            for s in ("Sonstraal", "Vierlanden")]
+    db = _AreasDB([
+        {"key": "durbanville/vierlanden", "name": "Vierlanden", "region": "durbanville", "boundary_source": "drawn"},
+        {"key": "durbanville/sonstraal", "name": "Sonstraal", "region": "durbanville", "boundary_source": "osm"},
+        {"key": "durbanville/handadded", "name": "Hand Added", "city": "Durbanville", "region": "durbanville",
+         "lat": None, "lng": None, "boundary_source": None},
+    ])
+    official = _NoOfficial([("City of Cape Town official suburbs", [_feat("SONSTRAAL HEIGHTS", -33.845, 18.675)])])
+    finder = _Finder({})
+    info = areas_mod.update_areas(db, rows, finder, now, official=official)
+    got = [r for batch in db.upserts for r in batch if r.get("boundary_source") == "official"]
+    assert [r["key"] for r in got] == ["durbanville/sonstraal"]               # replaces the OpenStreetMap one
+    assert info["official"] == 1 and info["official_missed"] == 1             # hand-added one checked, not found
+    assert not any(r["key"] == "durbanville/vierlanden" for batch in db.upserts[1:] for r in batch)
+    assert "Sonstraal" not in finder.asked

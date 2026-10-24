@@ -1068,7 +1068,7 @@ window.dfArea = (key, listingId) => {
   openModal(`
     <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
     <h2>${esc(a.name)}</h2>
-    <p class="meta">${esc(a.city || "")} · ${a.boundary_source === "osm" ? "outline from OpenStreetMap" : a.boundary_source === "drawn" ? "outline drawn by you" : a.lat != null ? "rough outline only (dotted): adjust it to match the real suburb" : "no outline yet"}</p>
+    <p class="meta">${esc(a.city || "")} · ${a.boundary_source === "official" ? "official boundary: " + esc(a.official_name || "") : a.boundary_source === "osm" ? "outline from OpenStreetMap" : a.boundary_source === "drawn" ? "outline drawn by you" : a.lat != null ? "rough outline only (dotted): adjust it to match the real suburb" : "no outline yet"}</p>
     <div class="popup-actions">
       <button class="watchbtn" onclick="dfDrawArea('${esc(key)}', '${esc(listingId || "")}')">${a.boundary || a.lat != null ? "Adjust outline" : "Draw outline"}</button>
       <a class="watchbtn" style="text-decoration:none" href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">Find sold prices ↗</a>
