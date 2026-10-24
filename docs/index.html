@@ -726,24 +726,29 @@ $("authForm").addEventListener("submit", async e => {
     setTimeout(() => setAuthMode("signin"), 50);
   }
 });
-sb.auth.onAuthStateChange(async (event, session) => {
-  if (event === "PASSWORD_RECOVERY") {
+// Note: never wait on another Supabase call inside this callback. The sign-in library holds a lock
+// while it runs, so a request made here would wait forever (that froze the page once). Work that needs
+// the database is started just after, with setTimeout.
+sb.auth.onAuthStateChange((event, session) => {
+  const signedIn = !!session;
+  const changed = (user?.id || null) !== (session?.user?.id || null);
+  user = session?.user || null;
+  showAuth(!signedIn, "Sign in to see the listings.");
+  if (event === "PASSWORD_RECOVERY") setTimeout(async () => {
     const pw = prompt("Choose a new password (8+ characters):");
     if (pw && pw.length >= 8) {
       const { error } = await sb.auth.updateUser({ password: pw });
       alert(error ? authError(error) : "Password changed.");
     }
-  }
-  const signedIn = !!session;
-  const changed = (user?.id || null) !== (session?.user?.id || null);
-  user = session?.user || null;
-  showAuth(!signedIn, "Sign in to see the listings.");
-  if (signedIn && changed) {
-    const { data } = await sb.rpc("is_admin");
-    admin = data === true;
-    document.body.classList.toggle("is-admin", admin);
+  }, 0);
+  if (signedIn && changed) setTimeout(() => {
     loadAndShow();
-  }
+    sb.rpc("is_admin").then(({ data }) => {
+      admin = data === true;
+      document.body.classList.toggle("is-admin", admin);
+      drawAreas();
+    }, () => {});
+  }, 0);
   if (!signedIn) { admin = false; all = []; notes = {}; areas = {}; areaPrices = []; render(); drawAreas(); }
 });
 
