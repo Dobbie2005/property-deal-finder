@@ -25,21 +25,58 @@ LISTING_SENDER_DOMAINS = ["property24.com", "privateproperty.co.za"]
 MAX_REDIRECT_LOOKUPS = 150
 
 # --- Target areas -------------------------------------------------------------
-# A listing belongs to a region if its suburb lies within radius_km of the centre.
-REGIONS = {
-    "durbanville": {"label": "Durbanville & surrounds", "lat": -33.8320, "lng": 18.6470, "radius_km": 20},
-    "polokwane":   {"label": "Polokwane",               "lat": -23.9045, "lng": 29.4689, "radius_km": 25},
-    "tzaneen":     {"label": "Tzaneen",                 "lat": -23.8332, "lng": 30.1635, "radius_km": 25},
-}
+# The areas you watch live in the Supabase `regions` table (add them on the map: Settings -> Areas you
+# watch). These defaults are only used until the table has been read (and by the tests).
+# A listing belongs to an area if it lies within radius_km of the centre.
+DEFAULT_REGIONS = [
+    {"key": "durbanville", "label": "Durbanville & surrounds", "lat": -33.8320, "lng": 18.6470, "radius_km": 20,
+     "province": "Western Cape", "towns": [
+         {"name": "Durbanville", "lat": -33.8403, "lng": 18.6494, "p24_id": "439"},
+         {"name": "Bellville", "lat": -33.9064, "lng": 18.6271, "p24_id": "441"},
+         {"name": "Brackenfell", "lat": -33.8831, "lng": 18.7000, "p24_id": "454"}]},
+    {"key": "polokwane", "label": "Polokwane", "lat": -23.9045, "lng": 29.4689, "radius_km": 25, "province": "Limpopo",
+     "towns": [{"name": "Polokwane", "lat": -23.9058, "lng": 29.4614, "p24_id": "703", "aliases": ["Pietersburg"]}]},
+    {"key": "tzaneen", "label": "Tzaneen", "lat": -23.8332, "lng": 30.1635, "radius_km": 25, "province": "Limpopo",
+     "towns": [{"name": "Tzaneen", "lat": -23.8319, "lng": 30.1611, "p24_id": "708"}]},
+]
+REGIONS: dict = {}       # key -> {"label", "lat", "lng", "radius_km", "province"}
+TOWNS: dict = {}         # town name -> (lat, lng, province)
+TOWN_ALIASES: dict = {}  # letters-only lower-case name or alias -> town name ("naboomspruit" -> "Mookgophong")
+P24_TOWN_IDS: dict = {}  # Property24 town id -> (town, province)
 
-# Towns inside those areas (used to work out the town for listings whose email doesn't say)
-TOWNS = {
-    "Durbanville": (-33.8403, 18.6494, "Western Cape"),
-    "Bellville":   (-33.9064, 18.6271, "Western Cape"),
-    "Brackenfell": (-33.8831, 18.7000, "Western Cape"),
-    "Polokwane":   (-23.9058, 29.4614, "Limpopo"),
-    "Tzaneen":     (-23.8319, 30.1611, "Limpopo"),
-}
+
+def _key(name) -> str:
+    return "".join(c for c in (name or "").lower() if c.isalpha())
+
+
+def set_regions(rows: list) -> None:
+    """Replace the areas (in place, so every module sees the change)."""
+    rows = [r for r in rows if r.get("active", True)]
+    if not rows:
+        return
+    REGIONS.clear(); TOWNS.clear(); TOWN_ALIASES.clear(); P24_TOWN_IDS.clear()
+    for r in sorted(rows, key=lambda r: (r.get("sort") or 100, r["key"])):
+        REGIONS[r["key"]] = {"label": r["label"], "lat": float(r["lat"]), "lng": float(r["lng"]),
+                             "radius_km": float(r.get("radius_km") or 20), "province": r.get("province")}
+        towns = r.get("towns") or [{"name": r["label"], "lat": r["lat"], "lng": r["lng"]}]
+        for t in towns:
+            name = t["name"]
+            TOWNS[name] = (float(t.get("lat", r["lat"])), float(t.get("lng", r["lng"])), r.get("province"))
+            for alias in [name] + list(t.get("aliases") or []):
+                TOWN_ALIASES[_key(alias)] = name
+            if t.get("p24_id"):
+                P24_TOWN_IDS[str(t["p24_id"])] = (name, r.get("province"))
+
+
+def canonical_town(name):
+    """'Naboomspruit' -> 'Mookgophong', 'Polokwane (Pietersburg)' -> 'Polokwane'; None if it isn't one of yours."""
+    if not name:
+        return None
+    k = _key(name.split("(")[0]) or _key(name)
+    return TOWN_ALIASES.get(k) or TOWN_ALIASES.get(_key(name))
+
+
+set_regions(DEFAULT_REGIONS)
 
 # --- Scoring ------------------------------------------------------------------
 COMPS_WINDOW_DAYS = 180  # only compare against listings seen in the last ~6 months

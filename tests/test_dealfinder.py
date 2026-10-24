@@ -620,9 +620,12 @@ class _FakeReader:
 def test_read_bank_sales_follows_next_pages_and_stops_when_blocked():
     html = (SAMPLES.parent / "bank_sales_sample.html").read_text()
     page2 = html.replace('<link rel="next" href="https://www.privateproperty.co.za/bank-sales/western-cape/cape-town/55?page=2" />', "")
-    pages = {banksales.PAGES[0][1]: html, banksales.PAGES[0][1] + "?page=2": page2, banksales.PAGES[1][1]: page2}
+    html = html.replace("western-cape/cape-town/55?page=2", "limpopo/8?page=2")
+    pg = dict(banksales.pages())
+    assert set(pg) == {"Limpopo", "Western Cape"}
+    pages = {pg["Limpopo"]: html, pg["Limpopo"] + "?page=2": page2, pg["Western Cape"]: page2}
     found, notes = banksales.read_bank_sales(_FakeReader(pages))
-    assert len(found) == 6 and notes == ["Cape Town: 4", "Limpopo: 2"]
+    assert len(found) == 6 and notes == ["Limpopo: 4", "Western Cape: 2"]
     found, notes = banksales.read_bank_sales(_FakeReader(pages, block_after=1))
     assert len(found) == 2 and notes[-1].startswith("⚠️")
 
@@ -647,3 +650,24 @@ def test_merged_suburbs_move_listings_and_undo_restores_them():
     assert (r["suburb"], r["listed_suburb"], r["lat"]) == ("Kuils River South", None, None)
     # merged areas never give pins
     assert set(areas_mod.area_pins(areas_rows + [{**areas_rows[1], "key": "x/y", "merged_into": "kuilsriver/kuilsriver"}])) == {"kuilsriver/kuilsriver"}
+
+
+
+def test_regions_from_the_database_and_town_aliases():
+    from dealfinder import config
+    saved = [dict(r) for r in config.DEFAULT_REGIONS]
+    try:
+        config.set_regions(saved + [{"key": "mookgophong", "label": "Mookgophong", "lat": -24.517, "lng": 28.717,
+                                     "radius_km": 20, "province": "Limpopo",
+                                     "towns": [{"name": "Mookgophong", "lat": -24.517, "lng": 28.717,
+                                                "aliases": ["Mookgopong", "Naboomspruit"]}]}])
+        assert "mookgophong" in config.REGIONS and "Mookgophong" in config.TOWNS
+        assert config.canonical_town("Naboomspruit") == "Mookgophong"
+        assert config.canonical_town("Polokwane (Pietersburg)") == "Polokwane"
+        assert config.canonical_town("Pietersburg") == "Polokwane" and config.canonical_town("Kraaifontein") is None
+        assert assign_region({"lat": -24.52, "lng": 28.70}) == "mookgophong"
+        assert config.P24_TOWN_IDS["703"] == ("Polokwane", "Limpopo")
+        config.set_regions([])  # an empty table never wipes your areas
+        assert "mookgophong" in config.REGIONS
+    finally:
+        config.set_regions(config.DEFAULT_REGIONS)

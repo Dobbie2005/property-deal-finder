@@ -183,10 +183,10 @@ class Geocoder:
         if norm(sub) in known:
             rec["city"], rec["province"] = known[norm(sub)]
             return
-        for town, (_, _, prov) in config.TOWNS.items():  # e.g. "22.7 ha farm in Tzaneen"
-            if norm(town) == norm(sub):
-                rec["city"], rec["province"] = town, prov
-                return
+        town = config.canonical_town(sub)  # e.g. "22.7 ha farm in Tzaneen", or a suburb called "Naboomspruit"
+        if town:
+            rec["city"], rec["province"] = town, config.TOWNS[town][2]
+            return
         k = "town?|" + norm(sub)
         if k not in self.cache:
             if self.calls >= config.MAX_GEOCODES_PER_RUN:

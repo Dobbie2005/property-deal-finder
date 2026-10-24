@@ -1,10 +1,9 @@
 # Property Deal Finder
 
-Finds property listings that look **under market value** in:
-
-- **Durbanville & surrounds** (20 km radius: Bellville, Brackenfell, Kraaifontein, Kuils River, Parow, Plattekloof…)
-- **Polokwane** (25 km radius)
-- **Tzaneen** (25 km radius)
+Finds property listings that look **under market value** in the areas you watch: Durbanville & surrounds,
+Polokwane, Tzaneen and Mookgophong to start with. Add more on the map under **Settings → Areas you watch**
+(a town and a radius; they're stored in the Supabase `regions` table). Then add the town to your Property24 and
+Private Property alerts so its listings reach the bot inbox.
 
 How it works:
 

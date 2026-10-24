@@ -257,6 +257,10 @@ def main() -> int:
         return 1
 
     notes: list[str] = []
+    try:  # the areas you watch (Settings -> Areas you watch on the map)
+        config.set_regions(db.select_all("regions", order="key"))
+    except Exception as e:  # noqa: BLE001  (falls back to the defaults in config.py)
+        notes.append(f"- ⚠️ Couldn't read your areas, using the defaults ({str(e)[:120]})")
     resolver = RedirectResolver(config.MAX_REDIRECT_LOOKUPS)
 
     # Emails copied in by the Google Apps Script (the normal route)
@@ -340,6 +344,10 @@ def main() -> int:
     # 3) Map coordinates + region ------------------------------------------------
     # Private Property gives a metro like "Cape Town" (or nothing) as the town: forget those and
     # their pins, so the town is worked out from the suburb below. This also repairs older rows.
+    for r in all_rows.values():  # one name per town: "Naboomspruit" -> "Mookgophong"
+        town = config.canonical_town(r.get("city"))
+        if town and town != r.get("city"):
+            r["city"] = town
     for r in all_rows.values():
         if r.get("source") == "privateproperty" and r.get("city") not in config.TOWNS and not r.get("bank"):
             r.update(city=None, province=None, lat=None, lng=None, pin_level=None)

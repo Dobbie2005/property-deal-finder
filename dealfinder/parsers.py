@@ -208,13 +208,7 @@ def parse_text(text: str) -> list[dict]:
 
 P24_ALERT_ID_RE = re.compile(r"(?:listingNumber=|\[image:\s*)P24-(\d+)", re.I)
 P24_CRITERIA_RE = re.compile(r"criteriaString=([A-Za-z0-9%+/=]+)")
-P24_TOWNS = {  # Property24 town id -> (town, province)
-    "439": ("Durbanville", "Western Cape"),
-    "441": ("Bellville", "Western Cape"),
-    "454": ("Brackenfell", "Western Cape"),
-    "703": ("Polokwane", "Limpopo"),
-    "708": ("Tzaneen", "Limpopo"),
-}
+# Property24 town ids (from the alert's search link) -> town: see config.P24_TOWN_IDS (set from the regions table)
 P24_TYPES = [  # (words on the card, our property_type)
     ("townhouse", "townhouse"), ("cluster", "townhouse"), ("duplex", "townhouse"), ("simplex", "townhouse"),
     ("apartment", "apartment"), ("flat", "apartment"), ("penthouse", "apartment"), ("studio", "apartment"),
@@ -236,7 +230,7 @@ def _p24_town(text: str) -> tuple[Optional[str], Optional[str]]:
         cid = re.search(r"cid=(\d+)", uq(uq(decoded)))
     except Exception:  # noqa: BLE001
         return None, None
-    return P24_TOWNS.get(cid.group(1), (None, None)) if cid else (None, None)
+    return config.P24_TOWN_IDS.get(cid.group(1), (None, None)) if cid else (None, None)
 
 
 def _p24_type(line: str) -> Optional[str]:
@@ -302,7 +296,7 @@ def parse_property24_alert(text: str, html: Optional[str] = None) -> list[dict]:
             nxt = lines[idx_type + 2] if idx_type + 2 < len(lines) else ""
             if nxt and not nxt.startswith("[") and not nxt.lower().startswith("view") and not PRICE_RE.search(nxt):
                 rec["agency"] = nxt[:120]  # e.g. "Keller Williams North" (auction houses get flagged)
-            for t, p in P24_TOWNS.values():  # e.g. "Polokwane Central" belongs to Polokwane
+            for t, (_lat, _lng, p) in config.TOWNS.items():  # e.g. "Polokwane Central" belongs to Polokwane
                 if t.lower() in rec["suburb"].lower() and t != rec["city"]:
                     rec["city"], rec["province"] = t, p
         icons = " ".join(lines)

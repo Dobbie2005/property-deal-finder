@@ -10,15 +10,27 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
+from . import config
 from .details import ListingPageReader
 from .parsers import _p24_type
 
 BASE = "https://www.privateproperty.co.za"
-PAGES = [  # (label, first page); "next page" links are followed from there
-    ("Cape Town", f"{BASE}/bank-sales/western-cape/cape-town/55"),
-    ("Limpopo", f"{BASE}/bank-sales/limpopo/8"),
-]
-MAX_PAGES = 8          # per run, all areas together
+# Private Property's bank-sales page for each province; the provinces of the areas you watch are read.
+PROVINCE_PAGES = {
+    "Western Cape": "western-cape/4", "Gauteng": "gauteng/3", "KwaZulu-Natal": "kwazulu-natal/2",
+    "Northern Cape": "northern-cape/5", "Free State": "free-state/6", "Eastern Cape": "eastern-cape/7",
+    "Limpopo": "limpopo/8", "North West": "north-west/9", "Mpumalanga": "mpumalanga/10",
+}
+PAGES_PER_PROVINCE = 6  # 20 listings a page; big provinces (Gauteng) are only partly covered
+
+
+def pages() -> list[tuple[str, str]]:
+    """(label, first page) for every province you have an area in."""
+    provs = sorted({r.get("province") for r in config.REGIONS.values()} & set(PROVINCE_PAGES))
+    return [(p, f"{BASE}/bank-sales/{PROVINCE_PAGES[p]}") for p in provs]
+
+
+MAX_PAGES = 16         # per run, all provinces together
 EVERY_HOURS = 11       # so about twice a day
 _NUM = re.compile(r"[\d\s ,.]+")
 
@@ -100,9 +112,9 @@ def read_bank_sales(reader: Optional[ListingPageReader] = None) -> tuple[list[di
     """All bank-sale listings on the pages above, plus notes for the run summary."""
     reader = reader or ListingPageReader(MAX_PAGES, pause=3)
     found, notes = [], []
-    for label, url in PAGES:
-        n = 0
-        while url and not reader.blocked and reader.visits < reader.limit:
+    for label, url in pages():
+        n, start = 0, reader.visits
+        while url and not reader.blocked and reader.visits < reader.limit and reader.visits - start < PAGES_PER_PROVINCE:
             got = reader.read(url)
             if not got:
                 break
