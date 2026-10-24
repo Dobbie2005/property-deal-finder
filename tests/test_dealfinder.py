@@ -732,3 +732,12 @@ def test_read_websites_sets_town_and_skips_a_site_that_pushes_back():
     found, counts, notes = websites.read_websites(srcs, R(pages))
     assert counts == {"Harcourts": 3} and any("429" in n for n in notes)  # Seeff skipped for the rest of the run
     assert {r["city"] for r in found} == {"Polokwane"} and all(r["province"] == "Limpopo" for r in found)
+
+
+def test_redirected_search_pages_are_skipped():
+    class R(_FakeReader):
+        def read(self, url):
+            self.visits += 1
+            return ("https://www.seeff.com/results/residential/for-sale/", _page("seeff_sample.html"))
+    found, counts, notes = websites.read_websites([{"url": "https://www.seeff.com/results/residential/for-sale/brackenfell/", "town": "Brackenfell"}], R({}))
+    assert found == [] and "no listings right now" in notes[0]

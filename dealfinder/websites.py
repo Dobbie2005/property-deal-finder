@@ -275,7 +275,7 @@ def default_sources() -> dict[str, list[dict]]:
         "polokwane": [S(remax.format("limpopo/polokwane"), "Polokwane"), S(pam.format("polokwane/1898"), "Polokwane"),
                       S(seeff.format("polokwane"), "Polokwane"), S(c21.format("polokwane"), "Polokwane"), S(chas.format("polokwane"), "Polokwane")],
         "tzaneen": [S(remax.format("limpopo/tzaneen"), "Tzaneen"), S(pam.format("tzaneen-limpopo-province/1907"), "Tzaneen"),
-                    S(seeff.format("tzaneen"), "Tzaneen"), S(c21.format("tzaneen"), "Tzaneen")],
+                    S(seeff.format("tzaneen"), "Tzaneen")],
         "mookgophong": [S(remax.format("limpopo/mookgopong"), "Mookgophong"), S(pam.format("mookgopong-naboomspruit/1893"), "Mookgophong"),
                         S(seeff.format("mookgopong"), "Mookgophong"), S(c21.format("mookgopong"), "Mookgophong"), S(chas.format("mookgopong"), "Mookgophong")],
     }
@@ -303,13 +303,16 @@ def read_websites(sources: list[dict], reader: Optional[ListingPageReader] = Non
             notes.append(f"{SITE_NAMES[site]}: no page at {src['url']}")
             continue
         final_url, html = got
+        if final_url.rstrip("/") != src["url"].rstrip("/"):  # never credit another page's listings to this town
+            one = re.search(r"/\d{5,}/?$", urlparse(final_url).path)
+            notes.append(f"{SITE_NAMES[site]}: {src['url']} " + ("has just one listing right now, which the site opens directly (skipped)"
+                         if one else "has no listings right now (the site sent us to a different page)"))
+            continue
         try:
             recs = PARSERS[site](html, src["url"])
         except Exception as e:  # noqa: BLE001  (a layout change on one site never stops the run)
             notes.append(f"{SITE_NAMES[site]}: couldn't read {src['url']} ({str(e)[:80]})")
             continue
-        if not recs and final_url.rstrip("/") != src["url"].rstrip("/"):
-            notes.append(f"{SITE_NAMES[site]}: {src['url']} now goes to another page; check the address")
         town = config.canonical_town(src.get("town")) or src.get("town")
         for r in recs:
             r["city"] = town
