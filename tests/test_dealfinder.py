@@ -273,3 +273,10 @@ def test_street_address_gives_an_exact_pin_only_if_near_the_suburb():
     assert geo.locate(r) == (-23.884, 29.489) and r["pin_level"] == "address"
     r2 = {"suburb": "Bendor", "city": "Polokwane", "province": "Limpopo", "address": "1 Far Road"}
     assert geo.locate(r2) == (-23.888, 29.485) and r2["pin_level"] == "suburb"
+
+
+def test_private_property_metro_is_not_used_as_the_town():
+    info = match_listing("https://www.privateproperty.co.za/for-sale/western-cape/cape-town/durbanville/kenridge/T5637671")
+    assert (info["suburb"], info["city"]) == ("Kenridge", "Durbanville")
+    info = match_listing("https://www.privateproperty.co.za/for-sale/western-cape/cape-town/northern-suburbs/oakglen/T5536663")
+    assert (info["suburb"], info["city"]) == ("Oakglen", None)   # worked out later from the suburb

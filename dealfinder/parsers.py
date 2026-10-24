@@ -73,7 +73,9 @@ def match_listing(url: str) -> Optional[dict]:
             "source": "privateproperty",
             "url": "https://www.privateproperty.co.za/for-sale/" + "/".join(parts).lower() + "/" + lid,
             "suburb": slug_to_name(parts[-1]),
-            "city": slug_to_name(parts[1]) if len(parts) > 1 else None,
+            # The path is province/metro/area/suburb, e.g. western-cape/cape-town/durbanville/kenridge.
+            # Only trust a part that is one of our towns; "Cape Town" (the metro) is too broad.
+            "city": next((slug_to_name(x) for x in parts[1:-1] if slug_to_name(x) in config.TOWNS), None),
             "province": slug_to_name(parts[0]),
         }
     return None

@@ -251,6 +251,12 @@ def main() -> int:
         db.delete_where("listings", {"last_seen": f"lt.{keep_cutoff.isoformat()}"})
 
     # 3) Map coordinates + region ------------------------------------------------
+    # Private Property gives a metro like "Cape Town" (or nothing) as the town: forget those and
+    # their pins, so the town is worked out from the suburb below. This also repairs older rows.
+    for r in all_rows.values():
+        if r.get("source") == "privateproperty" and r.get("city") not in config.TOWNS:
+            r.update(city=None, province=None, lat=None, lng=None, pin_level=None)
+
     geo = Geocoder(db)
     known_towns = {norm(r["suburb"]): (r["city"], r.get("province"))
                    for r in sorted(all_rows.values(), key=lambda r: r.get("source") != "property24", reverse=True)
