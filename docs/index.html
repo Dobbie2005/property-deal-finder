@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@geoman-io/leaflet-geoman-free@2.19.3/dist/leaflet-geoman.css">
 <style>
   :root {
     --bg: #f6f5f1; --panel: #ffffff; --ink: #1d2320; --muted: #66706b; --line: #e3e1da;
@@ -107,6 +108,34 @@
   .verdict.good { background: color-mix(in srgb, var(--great) 18%, transparent); }
   .verdict.bad { background: color-mix(in srgb, var(--high) 18%, transparent); }
 
+  /* ---------- Areas (suburb outlines) ---------- */
+  :root { --area: #7048e8; }
+  :root[data-theme="dark"] { --area: #b197fc; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --area: #b197fc; } }
+  #areasBtn { order: 2; }
+  #areasBtn.on { background: var(--area); border-color: var(--area); color: #fff; }
+  .area-label { pointer-events: auto; }
+  .area-label span { display: inline-block; transform: translate(-50%, calc(-100% - 24px)); white-space: nowrap; font-size: 12px; font-weight: 650;
+    color: var(--area); background: color-mix(in srgb, var(--panel) 82%, transparent); padding: 1px 7px; border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--area) 45%, transparent); cursor: pointer; }
+  .area-label span.no-outline { border-style: dashed; font-weight: 500; font-style: italic; }
+  .area-label span b { color: var(--great); }
+  #map.far .area-label { display: none; }
+  .areabtn { background: none; border: 0; padding: 0; color: var(--area); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .sold { margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--area) 10%, transparent); font-size: 12.5px; }
+  .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .tbl th, .tbl td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); }
+  .tbl th { color: var(--muted); font-weight: 500; }
+  .tbl td.r, .tbl th.r { text-align: right; }
+  .figform { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+  .figform .full { grid-column: 1 / -1; }
+  .figform select, .figform input[type=month] { width: 100%; font: inherit; font-size: 16px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  #drawbar { position: absolute; z-index: 1001; top: 10px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 24px));
+    background: var(--panel); color: var(--ink); border: 2px solid var(--area); border-radius: 12px; padding: 10px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.3); font-size: 13.5px; }
+  #drawbar[hidden] { display: none; }
+  #drawbar .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  main { position: relative; }
+
   /* ---------- Phones ---------- */
   @media (max-width: 760px) {
     body { height: 100dvh; }
@@ -115,7 +144,10 @@
     .filtersbtn { display: inline-flex; gap: 6px; order: 2; margin-left: auto; }
     .themebtn { order: 3; margin-left: 0; padding: 6px 10px; }
     .themebtn .lbl { display: none; }
-    #settingsBtn { order: 3; padding: 6px 10px; }
+    #settingsBtn, #areasBtn { order: 3; padding: 6px 10px; }
+    #settingsBtn .lbl { display: none; }
+    #settingsBtn::before { content: "⚙"; font-size: 16px; line-height: 1; }
+    header .chipbtn, .themebtn { padding: 6px 10px; }
     .tabs { order: 4; flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
     .tabs::-webkit-scrollbar { display: none; }
     .tabs button { white-space: nowrap; flex: 0 0 auto; }
@@ -179,15 +211,17 @@
     <label><input type="checkbox" id="dropsOnly"> price dropped</label>
     <label><input type="checkbox" id="watchedOnly"> shortlist only</label>
     <label title="When a suburb has too few similar listings, also compare with suburbs within 3 km">Compare with
-      <select id="compare"><option value="suburb">same suburb</option><option value="nearby">+ nearby suburbs</option></select></label>
+      <select id="compare"><option value="suburb">same suburb</option><option value="nearby">+ nearby suburbs</option><option value="sold">sold prices you saved</option></select></label>
   </div>
   <button class="chipbtn filtersbtn" id="filtersBtn" aria-expanded="false">Filters</button>
   <button class="themebtn" id="themeBtn" title="Switch between automatic, light and dark"><span class="lbl">Theme: </span>Auto</button>
-  <button class="chipbtn" id="settingsBtn" title="Deal alert emails and account">Settings</button>
+  <button class="chipbtn" id="areasBtn" title="Show suburb outlines, and what homes sell for in each one">Areas</button>
+  <button class="chipbtn" id="settingsBtn" title="Deal alert emails and account" aria-label="Settings"><span class="lbl">Settings</span></button>
 </header>
 <main>
   <div id="list"><div class="empty">Loading listings…</div></div>
   <div id="map"></div>
+  <div id="drawbar" hidden></div>
 </main>
 <nav class="viewswitch" aria-label="Show map or list">
   <button id="viewMap" class="on">Map</button><button id="viewList">List</button>
@@ -214,6 +248,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@geoman-io/leaflet-geoman-free@2.19.3/dist/leaflet-geoman.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 // Publishable key: safe to share. Nothing can be read with it until you sign in, and only
@@ -238,9 +273,16 @@ function colour(s) {
 // Which comparison is switched on: "suburb" (strict) or "nearby" (falls back to suburbs within 3 km)
 let compareMode = "suburb";
 try { compareMode = localStorage.getItem("compare") || "suburb"; } catch (e) {}
-const S = l => compareMode === "nearby"
-  ? { score: l.wide_score, median: l.wide_median, comps: l.wide_comps, basis: l.wide_basis }
-  : { score: l.deal_score, median: l.suburb_median, comps: l.comps_count, basis: l.score_basis };
+// "sold": your saved sold-price figure for the area where there is one, else the same-suburb comparison
+const S = l => {
+  if (compareMode === "sold") {
+    const f = soldFigure(l);
+    if (f && l.price) return { score: (f.value - l.price) / f.value * 100, median: f.value, comps: 1, basis: "sold", fig: f };
+  }
+  return compareMode === "nearby"
+    ? { score: l.wide_score, median: l.wide_median, comps: l.wide_comps, basis: l.wide_basis }
+    : { score: l.deal_score, median: l.suburb_median, comps: l.comps_count, basis: l.score_basis };
+};
 
 const isPhone = () => window.matchMedia("(max-width: 760px)").matches;
 
@@ -271,7 +313,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const rand = v => v ? "R " + Math.round(v).toLocaleString("en-ZA").replace(/,/g, " ") : "POA";
 const num = v => v == null ? null : +(+v).toFixed(1);
 
-let all = [], twins = {}, notes = {}, markersById = {}, region = "all", user = null;
+let all = [], twins = {}, notes = {}, markersById = {}, region = "all", user = null, areas = {}, areaPrices = [];
 const SITE = { property24: "Property24", privateproperty: "Private Property", facebook: "Facebook", manual: "your list" };
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
@@ -334,6 +376,7 @@ legend.addTo(map);
 
 function basisText(l) {
   const s = S(l);
+  if (s.basis === "sold") return `${Math.abs(s.score).toFixed(0)}% ${s.score >= 0 ? "below" : "above"} ${soldText(s.fig)}.`;
   if (s.score == null) return compareMode === "nearby"
     ? "Not enough similar listings in this suburb or within 3 km yet to score it."
     : "Not enough similar listings in this suburb yet. Try “Compare with: + nearby suburbs”.";
@@ -366,6 +409,7 @@ function popup(l) {
     <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")} · listed ${ageText(l.first_seen)}${
       daysSince(l.last_seen) < daysSince(l.first_seen) ? ` · last in an alert ${ageText(l.last_seen)}` : ""}</div>
     <div style="margin-top:6px">${basisText(l)}</div>
+    ${soldBox(l)}
     <div class="meta" style="margin-top:4px">${l.pin_level === "address" ? "📍 Pin is at the street address."
       : l.pin_level === "town" ? "Pin is at the town centre (suburb not found)." : "Pin is at the suburb centre."}</div>
     <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open on ${SITE[l.source] || "site"} ↗</a>
@@ -374,6 +418,7 @@ function popup(l) {
     <div class="popup-actions">
       <button class="watchbtn ${notes[l.id]?.watched ? "on" : ""}" onclick="dfToggleWatch('${esc(l.id)}')">${notes[l.id]?.watched ? "★ On shortlist" : "☆ Shortlist"}</button>
       <button class="watchbtn" onclick="dfFlip('${esc(l.id)}')">Flip calculator</button>
+      <button class="watchbtn" onclick="dfArea('${esc(areaKeyOf(l))}', '${esc(l.id)}')">${esc(l.suburb)} area</button>
     </div>
     <div style="display:flex;gap:8px;margin-top:8px" title="Copy these from the ad. They make comparisons and the flip calculator more accurate.">
       <label class="meta" style="flex:1">Floor m²<input class="notebox" type="number" min="10" max="5000" id="floor-${esc(l.id)}" value="${esc(notes[l.id]?.floor_m2 ?? l.floor_m2 ?? "")}" placeholder="from the ad"></label>
@@ -421,7 +466,8 @@ function render() {
   for (const l of rows) {
     if (l.lat == null) continue;
     const icon = L.divIcon({ className: "", html: `<div class="pin" style="background:${colour(S(l).score)}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
-    const m = L.marker([l.lat, l.lng], { icon, score: S(l).score }).bindPopup(popup(l), { maxWidth: 290, autoPanPaddingTopLeft: [10, 70], autoPanPaddingBottomRight: [10, 90] });
+    const m = L.marker([l.lat, l.lng], { icon, score: S(l).score }).bindPopup(popup(l), { maxWidth: 290, autoPanPaddingTopLeft: [10, 70], autoPanPaddingBottomRight: [10, 90],
+      maxHeight: isPhone() ? Math.max(260, map.getSize().y - 190) : null });  // on phones the popup scrolls instead of pushing its pin off-screen
     cluster.addLayer(m);
     markers[l.id] = m;
   }
@@ -447,10 +493,11 @@ function render() {
           <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
           <div class="meta">${[l.bedrooms && num(l.bedrooms) + " bed", l.floor_m2 && num(l.floor_m2) + " m²", l.property_type].filter(Boolean).join(" · ")}</div>
           <div class="meta">listed ${ageText(l.first_seen)} · ${twins[l.id] ? "on both sites" : esc(SITE[l.source] || l.source)}</div>
+          ${(() => { const f = soldFigure(l); return f && l.price ? `<div class="meta" style="color:var(--area)">sells for ~${short(f.value)} here (${f.value >= l.price ? "−" : "+"}${Math.abs((f.value - l.price) / f.value * 100).toFixed(0)}%)</div>` : ""; })()}
         </div>
-        <div class="badge" style="background:${colour(S(l).score)}">${S(l).score == null ? "–" : (S(l).score > 0 ? "−" : "+") + Math.abs(S(l).score).toFixed(0) + "%"}<small>${S(l).score == null ? "no comps" : S(l).comps + ((S(l).basis || "").startsWith("nearby_") ? " near" : " comps")}</small></div>
+        <div class="badge" style="background:${colour(S(l).score)}">${S(l).score == null ? "–" : (S(l).score > 0 ? "−" : "+") + Math.abs(S(l).score).toFixed(0) + "%"}<small>${S(l).score == null ? "no comps" : (S(l).basis === "sold" ? "vs sold" : S(l).comps + ((S(l).basis || "").startsWith("nearby_") ? " near" : " comps"))}</small></div>
       </div>`).join("") : `<div class="empty">Nothing matches these filters. Try “all listings” or “Listed: any time”.</div>`) +
-    `<div class="note">Pins sit on the suburb centre unless the listing gave a street address. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected. For what homes actually sold for, use “Area sold prices” in a listing’s popup.</div>`;
+    `<div class="note">Pins sit on the suburb centre unless the listing gave a street address. Scores compare asking prices with other listings, not sold prices, and get more reliable as more listings are collected. Save what homes actually sell for under <b>Areas</b> (or a listing’s “area” button), then choose “Compare with: sold prices you saved”.</div>`;
   list.querySelectorAll(".item").forEach(el => el.addEventListener("click", () => {
     const m = markers[el.dataset.id];
     if (m && document.body.classList.contains("view-list")) setView("map");
@@ -466,6 +513,7 @@ function setRegion(r, fly = true) {
   const { center, zoom } = REGIONS[r];
   fly ? map.flyTo(center, zoom, { duration: .8 }) : map.setView(center, zoom);
   render();
+  if (typeof drawAreas === "function") drawAreas();
 }
 
 document.getElementById("tabs").innerHTML = Object.entries(REGIONS)
@@ -479,7 +527,7 @@ for (const id of ["maxAge", "sortBy"]) {  // remember these between visits
 ["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly", "watchedOnly", "maxAge", "sortBy"].forEach(id =>
   document.getElementById(id).addEventListener("input", render));
 const compareSel = document.getElementById("compare");
-compareSel.value = compareMode === "nearby" ? "nearby" : "suburb";
+compareSel.value = ["nearby", "sold"].includes(compareMode) ? compareMode : "suburb";
 compareSel.addEventListener("input", () => {
   compareMode = compareSel.value;
   try { localStorage.setItem("compare", compareMode); } catch (e) {}
@@ -499,8 +547,11 @@ async function selectAll(table, order) {
   return rows;
 }
 async function load() {
-  const [rows, noteRows] = await Promise.all([selectAll("listings", "id"), selectAll("listing_notes", "listing_id")]);
+  const [rows, noteRows, areaRows, priceRows] = await Promise.all([selectAll("listings", "id"), selectAll("listing_notes", "listing_id"),
+    selectAll("areas", "key").catch(() => []), selectAll("area_prices", "created_at").catch(() => [])]);
   notes = Object.fromEntries(noteRows.map(n => [n.listing_id, n]));
+  areas = Object.fromEntries(areaRows.map(a => [a.key, a]));
+  areaPrices = priceRows;
   return rows;
 }
 
@@ -537,6 +588,7 @@ function loadAndShow() {
       if (notes[l.id]?.erf_m2) l.erf_m2 = Number(notes[l.id].erf_m2);
     }
     render();
+    drawAreas();
   })
   .catch(err => {
     document.getElementById("list").innerHTML =
@@ -606,7 +658,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
   user = session?.user || null;
   showAuth(!signedIn, "Sign in to see the listings.");
   if (signedIn && changed) loadAndShow();
-  if (!signedIn) { all = []; notes = {}; render(); }
+  if (!signedIn) { all = []; notes = {}; areas = {}; areaPrices = []; render(); drawAreas(); }
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -737,6 +789,7 @@ window.dfFlip = id => {
   const l = all.find(x => x.id === id);
   if (!l) return;
   const est = resaleEstimate(l);
+  const sold = soldFigure(l);
   const monthly = (l.levies || 0) + (l.rates || 0) + 2500;
   openModal(`
     <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
@@ -746,7 +799,9 @@ window.dfFlip = id => {
       <div><label class="field">Your offer (R)</label><input type="number" id="c_offer" step="10000" value="${l.price || ""}"></div>
       <div><label class="field">Resale value after renovation (R)</label><input type="number" id="c_arv" step="10000" value="${est ? round1k(est.value) : ""}"></div>
       <p class="meta full">${est ? `Estimate: ${esc(est.how)}. Change it if you know better (check “Area sold prices”).`
-                                  : "Not enough similar homes yet to estimate. Enter what you think it would sell for once renovated."}</p>
+                                  : "Not enough similar homes yet to estimate. Enter what you think it would sell for once renovated."}
+      ${sold ? `<br><span style="color:var(--area)">Your saved sold figure: ${figLabel(sold.p)} here sell for about <b>${rand(sold.value)}</b>${sold.p.source ? " (" + esc(sold.p.source) + ")" : ""}.
+        A renovated home should sell above that average.</span> <button type="button" class="areabtn" onclick="$('c_arv').value=${Math.round(sold.value / 1000) * 1000};$('c_arv').dispatchEvent(new Event('input',{bubbles:true}))">Use it</button>` : ""}</p>
       <div><label class="field">Renovation budget (R)</label><input type="number" id="c_reno" step="5000" value="150000"></div>
       <div><label class="field">Months until sold</label><input type="number" id="c_months" step="1" min="1" value="6"></div>
       <div><label class="field">Monthly running costs (R)</label><input type="number" id="c_monthly" step="100" value="${monthly}"></div>
@@ -790,6 +845,253 @@ window.dfFlip = id => {
   $("calc").addEventListener("input", calc);
   calc();
 };
+
+// ---------------------------------------------------------------------------------------------
+// Areas: suburb outlines (OpenStreetMap, or drawn here) and what homes actually sell for in each
+// ---------------------------------------------------------------------------------------------
+var areaLayer, areasOn = false;  // var: drawAreas() may be called before this part of the page has run
+const areaKeyOf = l => normName(l.city) + "/" + normName(l.suburb);  // same rule as the daily job
+const TYPE_WORD = { house: "houses", townhouse: "townhouses", apartment: "apartments", land: "plots", farm: "farms" };
+const short = v => v >= 1e6 ? "R" + (v / 1e6).toFixed(v >= 1e7 ? 1 : 2).replace(/\.?0+$/, "") + "m" : "R" + Math.round(v / 1000) + "k";
+const monthText = d => d ? new Date(d).toLocaleDateString("en-ZA", { month: "short", year: "numeric" }) : "";
+
+function figLabel(p, area) {
+  const what = p.type_group === "land" ? "plots" : `${p.bedrooms != null ? p.bedrooms + "-bed " : ""}${TYPE_WORD[p.type_group] || p.type_group}`;
+  return `${what}${area ? " in " + area : ""}`;
+}
+// The best saved figure for a listing: R/m² × floor size, same bedrooms, ±1 bedroom (adjusted), any size
+function soldFigure(l) {
+  if (!areaPrices.length || !l.suburb) return null;
+  const key = areaKeyOf(l), group = typeGroup(l.property_type);
+  const figs = areaPrices.filter(p => p.area_key === key && p.type_group === group)
+    .sort((a, b) => new Date(b.as_of || b.created_at) - new Date(a.as_of || a.created_at));
+  if (!figs.length) return null;
+  const beds = l.bedrooms ? Math.round(l.bedrooms) : null;
+  let f = l.floor_m2 && figs.find(p => p.price_per_m2);
+  if (f) return { value: f.price_per_m2 * l.floor_m2, p: f, how: `${rand(f.price_per_m2)}/m² × ${num(l.floor_m2)} m²` };
+  if (beds) {
+    f = figs.find(p => p.price && p.bedrooms === beds);
+    if (f) return { value: +f.price, p: f, how: "" };
+    f = figs.find(p => p.price && p.bedrooms != null && Math.abs(p.bedrooms - beds) === 1);
+    if (f) return { value: f.price * (1 + .12 * (beds - f.bedrooms)), p: f, how: `adjusted from ${f.bedrooms} bedrooms` };
+  }
+  f = figs.find(p => p.price && p.bedrooms == null);
+  return f ? { value: +f.price, p: f, how: "" } : null;
+}
+function soldText(f) {
+  const age = f.p.as_of && daysSince(f.p.as_of) > 365 ? " ⚠️ over a year old" : "";
+  return `what ${figLabel(f.p, f.p.area_key && areas[f.p.area_key]?.name)} sell for: ${rand(f.value)}${f.how ? " (" + esc(f.how) + ")" : ""}`
+    + ` <span class="meta">— your figure${f.p.source ? ", " + esc(f.p.source) : ""}${f.p.as_of ? ", " + monthText(f.p.as_of) : ""}${age}</span>`;
+}
+function soldBox(l) {
+  const f = soldFigure(l);
+  if (!f) return `<div class="meta" style="margin-top:4px">No sold prices saved for ${esc(l.suburb)} yet. <button class="areabtn" onclick="dfArea('${esc(areaKeyOf(l))}', '${esc(l.id)}')">Add one</button></div>`;
+  if (!l.price) return `<div class="sold">${soldText(f)}</div>`;
+  const d = (f.value - l.price) / f.value * 100;
+  return `<div class="sold"><b>${Math.abs(d).toFixed(0)}% ${d >= 0 ? "below" : "above"}</b> ${soldText(f)}</div>`;
+}
+
+// ----- Outlines on the map ----------------------------------------------------------------------
+map.createPane("areas").style.zIndex = 390;        // under listing pins
+map.createPane("areaLabels").style.zIndex = 450;
+areaLayer = L.featureGroup().addTo(map);
+const areaStyle = a => ({ pane: "areas", color: getComputedStyle(document.documentElement).getPropertyValue("--area").trim() || "#7048e8",
+  weight: 2.2, opacity: .95, fillOpacity: .07, dashArray: areaPrices.some(p => p.area_key === a.key) ? null : "6 5" });
+try { areasOn = localStorage.getItem("areas") === "on"; } catch (e) {}
+
+function areaSummary(key) {
+  const a = areas[key];
+  const ls = all.filter(l => areaKeyOf(l) === key && l.price);
+  const nFig = areaPrices.filter(p => p.area_key === key).length;
+  return `<b>${esc(a.name)}</b> <span class="meta">${esc(a.city || "")}</span>
+    <div class="meta">${ls.length} listing${ls.length === 1 ? "" : "s"}${ls.length ? ", median asking " + short(quantile(ls.map(l => +l.price), .5)) : ""}
+      · ${nFig ? nFig + " sold figure" + (nFig === 1 ? "" : "s") + " saved" : "no sold figures yet"}</div>
+    <button class="watchbtn" style="margin-top:6px" onclick="dfArea('${esc(key)}')">Area details</button>`;
+}
+function drawAreas() {
+  if (!areaLayer) return;
+  areaLayer.clearLayers();
+  document.getElementById("areasBtn").classList.toggle("on", areasOn);
+  if (!areasOn) return;
+  for (const a of Object.values(areas)) {
+    if (region !== "all" && a.region !== region) continue;
+    let centre = a.lat != null ? L.latLng(a.lat, a.lng) : null;
+    if (a.boundary) {
+      const shape = L.geoJSON(a.boundary, { style: () => areaStyle(a), pmIgnore: true });
+      shape.on("mouseover", () => shape.setStyle({ fillOpacity: .16 })).on("mouseout", () => shape.setStyle({ fillOpacity: .07 }));
+      shape.bindPopup(() => areaSummary(a.key), { maxWidth: 260 });
+      shape.addTo(areaLayer);
+      centre = shape.getBounds().getCenter();
+    }
+    if (!centre) continue;
+    const has = areaPrices.some(p => p.area_key === a.key);
+    L.marker(centre, { pane: "areaLabels", pmIgnore: true, keyboard: false,
+      icon: L.divIcon({ className: "area-label", iconSize: null,
+        html: `<span class="${a.boundary ? "" : "no-outline"}" title="${a.boundary ? "" : "No outline yet: open it to draw one"}">${esc(a.name)}${has ? " <b>R</b>" : ""}</span>` }) })
+      .bindPopup(() => areaSummary(a.key), { maxWidth: 260 }).addTo(areaLayer);
+  }
+}
+const updateFar = () => document.getElementById("map").classList.toggle("far", map.getZoom() < 12);
+map.on("zoomend", updateFar); updateFar();
+document.getElementById("areasBtn").addEventListener("click", () => {
+  areasOn = !areasOn;
+  try { localStorage.setItem("areas", areasOn ? "on" : "off"); } catch (e) {}
+  drawAreas();
+  if (areasOn && !Object.keys(areas).length) alert("No suburb outlines yet. They're added by the next listing check (every 15 minutes when alerts arrive).");
+});
+darkQuery.addEventListener("change", drawAreas);
+document.getElementById("themeBtn").addEventListener("click", drawAreas);
+
+// ----- Area details: asking prices now, and the sold figures you've saved -------------------------
+function areaFromListing(key, listingId) {
+  const l = all.find(x => x.id === listingId) || all.find(x => areaKeyOf(x) === key);
+  return l ? { key, name: l.suburb, city: l.city, region: l.region, lat: l.lat, lng: l.lng } : null;
+}
+async function ensureArea(a) {  // sold figures need the area to exist in the database
+  if (areas[a.key]?.updated_at) return true;
+  const { error } = await sb.from("areas").upsert({ key: a.key, name: a.name, city: a.city, region: a.region, lat: a.lat, lng: a.lng },
+                                                  { onConflict: "key", ignoreDuplicates: true });
+  if (error) { alert("Couldn't save: " + error.message); return false; }
+  areas[a.key] = { ...a, ...(areas[a.key] || {}), updated_at: areas[a.key]?.updated_at || new Date().toISOString() };
+  return true;
+}
+window.dfArea = (key, listingId) => {
+  const a = areas[key] || areaFromListing(key, listingId);
+  if (!a) return;
+  map.closePopup();
+  const cutoff = Date.now() - 180 * DAY;
+  const ls = all.filter(l => areaKeyOf(l) === key && l.price && new Date(l.last_seen || l.first_seen) >= cutoff);
+  const groups = {};
+  for (const l of ls) {
+    const g = typeGroup(l.property_type), b = g === "land" ? null : (l.bedrooms ? Math.round(l.bedrooms) : null);
+    (groups[`${g}|${b ?? ""}`] ||= { g, b, prices: [], ppm: [] }).prices.push(+l.price);
+    if (l.floor_m2 >= 20) groups[`${g}|${b ?? ""}`].ppm.push(l.price / l.floor_m2);
+  }
+  const asking = Object.values(groups).sort((x, y) => x.g.localeCompare(y.g) || (x.b ?? 99) - (y.b ?? 99)).map(x => `
+    <tr><td>${x.g === "land" ? "plots" : (x.b != null ? x.b + "-bed " : "") + (TYPE_WORD[x.g] || x.g)}</td><td class="r">${x.prices.length}</td>
+      <td class="r">${rand(quantile(x.prices, .5))}</td><td class="r">${x.ppm.length ? rand(quantile(x.ppm, .5)) : "–"}</td></tr>`).join("");
+  const figs = areaPrices.filter(p => p.area_key === key).sort((x, y) => x.type_group.localeCompare(y.type_group) || (x.bedrooms ?? 99) - (y.bedrooms ?? 99));
+  const figRows = figs.map(p => `
+    <div class="rcp"><div><b>${figLabel(p)}</b>: ${p.price ? rand(p.price) : ""}${p.price && p.price_per_m2 ? " · " : ""}${p.price_per_m2 ? rand(p.price_per_m2) + "/m²" : ""}
+      <div class="meta">${[p.source, p.as_of && monthText(p.as_of), p.added_by && "added by " + p.added_by.split("@")[0]].filter(Boolean).map(esc).join(" · ")}${p.note ? "<br>" + esc(p.note) : ""}</div></div>
+      <button class="watchbtn" data-delfig="${esc(p.id)}">Remove</button></div>`).join("");
+  const q = encodeURIComponent(`Property24 ${a.name} ${a.city || ""} property trends sold prices`);
+  const now = new Date();
+  openModal(`
+    <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
+    <h2>${esc(a.name)}</h2>
+    <p class="meta">${esc(a.city || "")} · ${a.boundary_source === "osm" ? "outline from OpenStreetMap" : a.boundary_source === "drawn" ? "outline drawn by you" : "no outline yet"}</p>
+    <div class="popup-actions">
+      <button class="watchbtn" onclick="dfDrawArea('${esc(key)}', '${esc(listingId || "")}')">${a.boundary ? "Adjust outline" : "Draw outline"}</button>
+      <a class="watchbtn" style="text-decoration:none" href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">Find sold prices ↗</a>
+    </div>
+
+    <h3>What homes sell for here</h3>
+    <p class="meta">Copy these from Property24's area trends (“Find sold prices”), a Lightstone report or an agent. Listings in ${esc(a.name)} are then compared with them.</p>
+    ${figRows || `<p class="meta"><i>None saved yet.</i></p>`}
+    <form class="figform" id="figForm" style="margin-top:10px">
+      <div><label class="field">Type</label><select id="f_type">
+        <option value="house">house</option><option value="townhouse">townhouse</option><option value="apartment">apartment</option>
+        <option value="land">plot / land</option><option value="farm">farm / smallholding</option></select></div>
+      <div><label class="field">Bedrooms</label><select id="f_beds"><option value="">all sizes</option>${[1,2,3,4,5,6].map(b => `<option value="${b}" ${b === 3 ? "selected" : ""}>${b}</option>`).join("")}</select></div>
+      <div><label class="field">Sold price (R)</label><input type="number" id="f_price" step="10000" min="10000" placeholder="e.g. 2400000"></div>
+      <div><label class="field">or per m² (R)</label><input type="number" id="f_ppm" step="100" min="100" placeholder="optional"></div>
+      <div><label class="field">Where it's from</label><input type="text" id="f_source" list="figSources" placeholder="Property24 trends"></div>
+      <div><label class="field">As of</label><input type="month" id="f_asof" value="${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}"></div>
+      <div class="full"><label class="field">Note (optional)</label><input type="text" id="f_note" placeholder="e.g. average of 6 sales, mostly unrenovated"></div>
+      <datalist id="figSources"><option value="Property24 area trends"><option value="Private Property area info"><option value="Lightstone report"><option value="Agent (CMA)"><option value="Municipal valuation"></datalist>
+      <div class="full"><button class="primary" type="submit">Save figure</button><p class="msg" id="figMsg"></p></div>
+    </form>
+
+    <h3>Asking prices now (last 6 months)</h3>
+    ${asking ? `<table class="tbl"><tr><th>Kind</th><th class="r">Listings</th><th class="r">Median asking</th><th class="r">Per m²</th></tr>${asking}</table>`
+             : `<p class="meta">No listings with a price here yet.</p>`}
+    <p class="meta" style="margin-top:8px">Asking prices usually sit above what homes sell for, so a sold figure is the better yardstick.</p>`);
+  $("f_type").addEventListener("change", () => { if ($("f_type").value === "land") $("f_beds").value = ""; });
+  $("figForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const price = Number($("f_price").value) || null, ppm = Number($("f_ppm").value) || null;
+    if (!price && !ppm) { $("figMsg").className = "msg err"; $("figMsg").textContent = "Enter a sold price or a price per m²."; return; }
+    if (!(await ensureArea(a))) return;
+    const row = { area_key: key, type_group: $("f_type").value, bedrooms: $("f_beds").value ? Number($("f_beds").value) : null,
+      price, price_per_m2: ppm, source: $("f_source").value.trim() || null, as_of: $("f_asof").value ? $("f_asof").value + "-01" : null,
+      note: $("f_note").value.trim() || null, added_by: user?.email || null };
+    const { data, error } = await sb.from("area_prices").insert(row).select();
+    if (error) { $("figMsg").className = "msg err"; $("figMsg").textContent = error.message; return; }
+    areaPrices.push(...(data && data.length ? data : [{ ...row, id: "new" + Date.now(), created_at: new Date().toISOString() }]));
+    render(); drawAreas(); dfArea(key, listingId);
+  });
+  $("modalBody").querySelectorAll("[data-delfig]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Remove this figure?")) return;
+    const { error } = await sb.from("area_prices").delete().eq("id", b.dataset.delfig);
+    if (error) { alert("Couldn't remove: " + error.message); return; }
+    areaPrices = areaPrices.filter(p => p.id !== b.dataset.delfig);
+    render(); drawAreas(); dfArea(key, listingId);
+  }));
+};
+
+// ----- Drawing / adjusting an outline (Leaflet-Geoman) ---------------------------------------------
+let drawing = null;  // { key, area, layer }
+function drawBar(html) { const bar = $("drawbar"); bar.innerHTML = html; bar.hidden = !html; }
+function stopDrawing() {
+  if (map.pm) { map.pm.disableDraw(); }
+  if (drawing?.layer) map.removeLayer(drawing.layer);
+  map.off("pm:create");
+  drawing = null; drawBar(""); drawAreas();
+}
+function startEditing(layer) {
+  layer.eachLayer ? layer.eachLayer(x => x.pm && x.pm.enable({ allowSelfIntersection: false })) : layer.pm.enable({ allowSelfIntersection: false });
+  drawBar(`<b>${esc(drawing.area.name)}</b>: drag the white points to move the edge${isPhone() ? "" : " (drag a faint middle point to add a corner, right-click a point to remove it)"}.
+    <div class="btns"><button class="primary small" onclick="dfSaveOutline()">Save outline</button>
+    <button class="watchbtn" onclick="dfRedraw()">Start again</button><button class="watchbtn" onclick="dfStopDrawing()">Cancel</button></div>`);
+}
+function startNewShape() {
+  if (drawing.layer) { map.removeLayer(drawing.layer); drawing.layer = null; }
+  drawBar(`<b>${esc(drawing.area.name)}</b>: ${isPhone() ? "tap" : "click"} around the edge of the suburb, then ${isPhone() ? "tap" : "click"} the first point again to finish.
+    <div class="btns"><button class="watchbtn" onclick="dfStopDrawing()">Cancel</button></div>`);
+  map.off("pm:create");
+  map.once("pm:create", e => { drawing.layer = e.layer; startEditing(e.layer); });
+  map.pm.enableDraw("Polygon", { snappable: false, allowSelfIntersection: false, templineStyle: { color: "#7048e8" }, pathOptions: { color: "#7048e8", fillOpacity: .1 } });
+}
+window.dfStopDrawing = stopDrawing;
+window.dfRedraw = () => drawing && startNewShape();
+window.dfDrawArea = (key, listingId) => {
+  if (!map.pm) { alert("The drawing tool didn't load. Check your connection and reload the page."); return; }
+  const a = areas[key] || areaFromListing(key, listingId);
+  if (!a) return;
+  closeModal(); map.closePopup();
+  if (isPhone()) setView("map");
+  if (drawing) stopDrawing();
+  areasOn = true; try { localStorage.setItem("areas", "on"); } catch (e) {}
+  drawAreas();
+  drawing = { key, area: a, layer: null };
+  if (a.boundary) {
+    drawing.layer = L.geoJSON(a.boundary, { style: { color: "#7048e8", weight: 3, fillOpacity: .12 } }).addTo(map);
+    map.fitBounds(drawing.layer.getBounds(), { padding: [30, 30] });
+    startEditing(drawing.layer);
+  } else {
+    if (a.lat != null) map.setView([a.lat, a.lng], 15);
+    startNewShape();
+  }
+};
+window.dfSaveOutline = async () => {
+  if (!drawing?.layer) return;
+  const polys = [];
+  const add = g => { if (g.type === "Polygon") polys.push(g.coordinates); else if (g.type === "MultiPolygon") polys.push(...g.coordinates); };
+  const gj = drawing.layer.toGeoJSON();
+  (gj.type === "FeatureCollection" ? gj.features : [gj]).forEach(f => add(f.geometry || f));
+  if (!polys.length) return;
+  const boundary = polys.length === 1 ? { type: "Polygon", coordinates: polys[0] } : { type: "MultiPolygon", coordinates: polys };
+  const a = drawing.area, key = drawing.key;
+  const row = { key, name: a.name, city: a.city, region: a.region, lat: a.lat, lng: a.lng, boundary, boundary_source: "drawn",
+                boundary_checked_at: new Date().toISOString(), updated_by: user?.email || null, updated_at: new Date().toISOString() };
+  const { error } = await sb.from("areas").upsert(row);
+  if (error) { alert("Couldn't save the outline: " + error.message); return; }
+  areas[key] = { ...(areas[key] || {}), ...row };
+  stopDrawing();
+};
+document.addEventListener("keydown", e => { if (e.key === "Escape" && drawing) stopDrawing(); });
+drawAreas();
 </script>
 </body>
 </html>

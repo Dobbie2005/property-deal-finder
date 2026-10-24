@@ -22,6 +22,7 @@ from pathlib import Path
 from dealfinder import config
 from dealfinder.details import ListingPageReader, parse_property24_page
 from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
+from dealfinder.areas import OutlineFinder, update_areas
 from dealfinder.scoring import assign_region, mark_duplicates, norm, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
 
@@ -350,6 +351,14 @@ def main() -> int:
         payload.append(row)
     db.upsert("listings", payload)
 
+    # Suburb outlines for the map's Areas button (nice-to-have: never stops the run)
+    try:
+        area_info = update_areas(db, rows, OutlineFinder(), now)
+        area_line = (f"- Suburb outlines: {area_info['found']} found on OpenStreetMap this run"
+                     f" ({area_info['checked']} checked, {area_info['areas']} suburbs in total)")
+    except Exception as e:  # noqa: BLE001
+        area_line = f"- Suburb outlines: skipped ({str(e)[:150]})"
+
     # Queue deal alerts (the Gmail script emails them to the recipients set up on the map)
     queued = queue_deal_alerts(rows, new_ids, drops)
     if queued:
@@ -400,6 +409,7 @@ def main() -> int:
         f"- Sizes typed in on the map: {n_typed}",
         f"- Homes listed on both sites (shown once): {n_dupes}",
         f"- Deal alerts queued for email: {len(queued)}",
+        area_line,
         *notes,
         "",
         "### Top 10 deals right now",

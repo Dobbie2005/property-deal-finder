@@ -369,3 +369,80 @@ def test_townhouses_are_not_compared_with_houses():
     rows[0]["property_type"] = "townhouse"
     score_listings(rows, now)
     assert rows[0]["deal_score"] is None   # only houses to compare with: no score rather than a fake "75% below"
+
+
+# --- Suburb outlines (Areas button) -------------------------------------------------------
+from dealfinder import areas as areas_mod
+
+
+def _sq(lat, lng, d=0.01):
+    return {"type": "Polygon", "coordinates": [[[lng, lat], [lng + d, lat], [lng + d, lat + d], [lng, lat + d], [lng, lat]]]}
+
+
+def test_collect_areas_groups_by_suburb_and_town():
+    rows = [
+        {"suburb": "Sonstraal", "city": "Durbanville", "region": "durbanville", "lat": -33.83, "lng": 18.66, "pin_level": "suburb"},
+        {"suburb": "Sonstraal", "city": "Durbanville", "region": "durbanville", "lat": -33.80, "lng": 18.60, "pin_level": "address"},
+        {"suburb": "Sonstraal", "city": "Durbanville", "region": "durbanville", "lat": -33.83, "lng": 18.66, "duplicate_of": "x"},
+        {"suburb": "Bendor", "city": "Polokwane", "region": "polokwane", "lat": -23.89, "lng": 29.49, "pin_level": "suburb"},
+        {"suburb": "Somewhere", "city": "Cape Town", "region": "other", "lat": -33.9, "lng": 18.4, "pin_level": "suburb"},
+    ]
+    got = areas_mod.collect_areas(rows)
+    assert set(got) == {"durbanville/sonstraal", "polokwane/bendor"}
+    assert got["durbanville/sonstraal"]["lat"] == -33.83  # suburb-level pins win over street addresses
+
+
+def test_pick_outline_rejects_wrong_shapes():
+    centre = (-33.83, 18.66)
+    town = {"class": "boundary", "geojson": _sq(-33.9, 18.6, 0.3), "boundingbox": ["-33.9", "-33.6", "18.6", "18.9"]}
+    school = {"class": "amenity", "geojson": _sq(-33.835, 18.655), "boundingbox": ["-33.835", "-33.825", "18.655", "18.665"]}
+    street = {"class": "highway", "geojson": {"type": "LineString", "coordinates": []}, "boundingbox": ["-33.84", "-33.82", "18.65", "18.67"]}
+    far = {"class": "place", "geojson": _sq(-23.9, 29.4), "boundingbox": ["-23.9", "-23.89", "29.4", "29.41"]}
+    good = {"class": "place", "geojson": _sq(-33.835, 18.655), "boundingbox": ["-33.835", "-33.825", "18.655", "18.665"]}
+    assert areas_mod.pick_outline([town, school, street, far], centre) is None
+    assert areas_mod.pick_outline([town, school, good], centre) == good["geojson"]
+
+
+class _AreasDB:
+    def __init__(self, existing):
+        self.existing, self.upserts = existing, []
+
+    def select_all(self, table, order, select="*", filters=None):
+        return self.existing
+
+    def upsert(self, table, rows):
+        self.upserts.append(rows)
+
+
+class _Finder:
+    def __init__(self, hits, limit=10):
+        self.hits, self.calls, self.limit, self.asked = hits, 0, limit, []
+
+    def can_search(self):
+        return self.calls < self.limit
+
+    def search(self, name, city):
+        self.calls += 1
+        self.asked.append(name)
+        return self.hits.get(name, [])
+
+
+def test_update_areas_never_overwrites_drawn_outlines_and_rechecks_later():
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 24, tzinfo=timezone.utc)
+    rows = [{"suburb": s, "city": "Durbanville", "region": "durbanville", "lat": -33.83, "lng": 18.66, "pin_level": "suburb"}
+            for s in ("Sonstraal", "Aurora", "Vierlanden", "Kenridge")]
+    db = _AreasDB([
+        {"key": "durbanville/aurora", "boundary_source": "drawn", "boundary_checked_at": None},
+        {"key": "durbanville/vierlanden", "boundary_source": "none", "boundary_checked_at": "2026-10-20T00:00:00+00:00"},
+        {"key": "durbanville/kenridge", "boundary_source": "none", "boundary_checked_at": "2026-08-01T00:00:00+00:00"},
+    ])
+    good = {"class": "place", "geojson": _sq(-33.835, 18.655), "boundingbox": ["-33.835", "-33.825", "18.655", "18.665"]}
+    finder = _Finder({"Sonstraal": [good]})
+    info = areas_mod.update_areas(db, rows, finder, now)
+    assert sorted(finder.asked) == ["Kenridge", "Sonstraal"]  # drawn one skipped, recent "none" skipped
+    assert info == {"areas": 4, "checked": 2, "found": 1}
+    checked = {r["key"]: r for r in db.upserts[-1]}
+    assert checked["durbanville/sonstraal"]["boundary_source"] == "osm"
+    assert checked["durbanville/kenridge"]["boundary_source"] == "none"
+    assert all("boundary" not in r for r in db.upserts[0])  # the first save never touches outlines

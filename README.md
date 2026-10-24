@@ -127,7 +127,19 @@ whether to use the nearby-suburbs score, and whether price drops count. The Gmai
 (usually within 15–30 minutes of the alert arriving).
 
 ## Floor sizes
-Each new Property24 listing's page is read once (politely, honest user agent, pauses, stops if the
-site pushes back, and never where robots.txt disallows it) for floor size, plot size, levies and rates.
-Private Property's robots.txt disallows this, so its listings borrow sizes from the same home on
-Property24 when there is one.
+Property24 blocks automated visits to its listing pages, so sizes aren't read automatically. Type the
+floor and plot size from the ad into a listing's popup and press Save; the next run uses them.
+
+## Areas (suburb outlines and sold prices)
+The **Areas** button outlines each suburb that has listings. Outlines come from OpenStreetMap
+(each suburb is looked up once by the listing check). Where OpenStreetMap has no outline the suburb's
+name shows in a dashed box: open it and choose **Draw outline**, or **Adjust outline** to drag the
+edge of one that's wrong. Drawn outlines are never overwritten.
+
+Each area also holds **what homes actually sell for** there. Copy figures in from Property24's area
+trends, a Lightstone report or an agent (for example "3-bed houses, sold average R2.4m"). Then:
+- every popup in that suburb compares the asking price with your figure,
+- the list shows "sells for ~R2.4m here",
+- the flip calculator offers it as a check on the resale value,
+- Filters → Compare with → **sold prices you saved** colours and sorts the map by it (suburbs without
+  a figure fall back to the usual comparison).

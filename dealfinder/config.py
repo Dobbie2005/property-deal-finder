@@ -58,6 +58,7 @@ DB_WARN_MB = 400           # the run summary warns when the database gets this b
 # --- Geocoding (free OpenStreetMap Nominatim; max 1 request per second) ---------
 NOMINATIM_EMAIL = os.environ.get("NOMINATIM_EMAIL", "")
 MAX_GEOCODES_PER_RUN = 60
+MAX_OUTLINES_PER_RUN = 25   # suburb outlines for the map's Areas button (each suburb is looked up once)
 
 # --- Property24 listing pages (floor size, plot size, levies, rates, area-trend link) ---
 # Off: Property24's bot protection answers GitHub's servers with 503, and we respect that.
