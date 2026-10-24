@@ -9,6 +9,9 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@geoman-io/leaflet-geoman-free@2.19.3/dist/leaflet-geoman.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
 <style>
   :root {
     --bg: #f6f5f1; --panel: #ffffff; --ink: #1d2320; --muted: #66706b; --line: #e3e1da;
@@ -217,11 +220,169 @@
     .card.wide { max-width: none; border-radius: 16px 16px 0 0; max-height: 92dvh; }
     .calc { grid-template-columns: 1fr; }
   }
+
+  /* =====================================================================================
+     Look & feel. Cool mist background, emerald accent, Bricolage Grotesque for the name,
+     prices and scores (what you scan for), Schibsted Grotesk for everything else.
+     Deal scores are drawn as price tags. Later rules here deliberately override the ones above.
+     ===================================================================================== */
+  :root {
+    --bg: #edf1ef; --panel: #ffffff; --ink: #11201a; --muted: #5a6962; --line: #dde4e0;
+    --field: #f1f4f2; --field-hover: #e6ece8; --accent: #0d7a4e; --accent-soft: #dff2e8; --on-accent: #ffffff;
+    --shadow: 0 1px 2px rgba(17, 32, 26, .06), 0 8px 24px rgba(17, 32, 26, .10);
+    --shadow-lg: 0 2px 6px rgba(17, 32, 26, .08), 0 24px 60px rgba(17, 32, 26, .22);
+    --display: "Bricolage Grotesque", "Schibsted Grotesk", system-ui, sans-serif;
+    --text: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b110f; --panel: #131b18; --ink: #e5ece8; --muted: #91a099; --line: #24302b;
+      --field: #1a2420; --field-hover: #22302a; --accent: #3fcf8e; --accent-soft: #163a2a; --on-accent: #06281a;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35); --shadow-lg: 0 24px 60px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b110f; --panel: #131b18; --ink: #e5ece8; --muted: #91a099; --line: #24302b;
+    --field: #1a2420; --field-hover: #22302a; --accent: #3fcf8e; --accent-soft: #163a2a; --on-accent: #06281a;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35); --shadow-lg: 0 24px 60px rgba(0,0,0,.6);
+  }
+  body { font: 14px/1.5 var(--text); -webkit-font-smoothing: antialiased; }
+  button, select, input, textarea { font-family: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Header: name, area switch, actions; filters underneath */
+  header { padding: 10px 16px; gap: 10px 14px; border-bottom: 1px solid var(--line); }
+  h1 { display: flex; align-items: center; gap: 8px; font: 800 20px/1 var(--display); letter-spacing: -.025em; }
+  h1 .mark { width: 24px; height: 24px; fill: var(--accent); }
+  h1 .mark circle { fill: var(--panel); }
+  .tabs { gap: 2px; padding: 3px; background: var(--field); border-radius: 12px; }
+  .tabs button { border: 0; padding: 0 14px; height: 32px; border-radius: 9px; font-weight: 600; font-size: 13.5px; color: var(--muted); background: transparent; }
+  .tabs button:hover { color: var(--ink); }
+  .tabs button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(17,32,26,.12), 0 1px 6px rgba(17,32,26,.06); }
+  :root[data-theme="dark"] .tabs button.on { background: #2b3933; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tabs button.on { background: #2b3933; } }
+
+  /* One button style everywhere */
+  .chipbtn, .themebtn, .watchbtn, .listtoggle {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 34px; padding: 0 14px;
+    border: 1px solid transparent; border-radius: 10px; background: var(--field); color: var(--ink);
+    font-size: 13.5px; font-weight: 600; text-decoration: none; cursor: pointer; transition: background-color .12s ease; }
+  .chipbtn:hover, .themebtn:hover, .watchbtn:hover, .listtoggle:hover { background: var(--field-hover); }
+  .watchbtn { height: 30px; padding: 0 12px; font-size: 12.5px; }
+  .watchbtn.on { background: #f5c542; color: #2b2205; }
+  .watchbtn.danger { color: var(--high); background: color-mix(in srgb, var(--high) 10%, var(--field)); border-color: transparent; }
+  #areasBtn.on { background: var(--area); color: #fff; }
+  .filtersbtn { display: none; }
+  .primary { height: 44px; border-radius: 12px; font-weight: 700; font-size: 14.5px; background: var(--accent); color: var(--on-accent); padding: 0 18px; }
+  .primary:hover { filter: brightness(1.06); }
+  .primary.small { height: 36px; padding: 0 14px; border-radius: 10px; }
+  .linkbtn, .areabtn { font-weight: 600; }
+
+  /* Filters: each one a compact pill with its label inside */
+  .filters { gap: 6px; padding-top: 2px; }
+  .filters label { height: 34px; gap: 6px; padding: 0 4px 0 12px; border-radius: 10px; background: var(--field); color: var(--muted); font-size: 12.5px; font-weight: 500; }
+  .filters label:has(input[type=checkbox]) { padding: 0 12px; cursor: pointer; color: var(--ink); font-weight: 600; }
+  .filters label:has(input:checked) { background: var(--accent-soft); color: var(--accent); }
+  .filters input[type=checkbox] { accent-color: var(--accent); margin: 0; }
+  select, input[type=number] { border-radius: 8px; }
+  .filters select, .filters input[type=number] { height: 30px; border: 0; background-color: transparent; color: var(--ink); font-weight: 600; font-size: 13px; padding: 0 6px; }
+  .filters input[type=number] { width: 104px; }
+  select { -webkit-appearance: none; appearance: none; padding-right: 22px !important; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235a6962' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 7px center; }
+
+  /* Inputs inside dialogs and popups */
+  .card input[type=email], .card input[type=password], .card input[type=number], .card input[type=text], .card textarea,
+  .figform select, .figform input[type=month], .notebox, .stagesel, .card select {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); }
+  .card input:focus, .card textarea:focus, .card select:focus, .notebox:focus, .stagesel:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); background: var(--panel); }
+  .notebox { padding: 7px 10px; }
+  .stagesel { height: 30px; padding: 0 8px; font-weight: 600; font-size: 12.5px; }
+
+  /* List */
+  #list { background: var(--panel); }
+  .summary { padding: 12px 16px; font-size: 12.5px; }
+  .item { padding: 12px 16px; gap: 12px; grid-template-columns: 96px 1fr 62px; border-bottom: 1px solid var(--line); transition: background-color .12s ease; }
+  .item:hover { background: var(--field); }
+  .thumb { width: 96px; height: 68px; border-radius: 10px; }
+  .price { font: 700 17px/1.2 var(--display); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .meta { font-size: 12.5px; line-height: 1.45; }
+  .note { padding: 14px 16px 18px; line-height: 1.5; }
+  /* The deal score as a price tag: notched end, punched hole */
+  .badge { position: relative; padding: 7px 4px 6px 12px; border-radius: 4px 8px 8px 4px; font: 700 15px/1.1 var(--display);
+    font-variant-numeric: tabular-nums; clip-path: polygon(9px 0, 100% 0, 100% 100%, 9px 100%, 0 50%); }
+  .badge::before { content: ""; position: absolute; left: 6px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--panel); }
+  .badge small { font: 500 9.5px/1.3 var(--text); opacity: .92; margin-top: 2px; }
+
+  /* Map: controls, popups, keys */
+  .leaflet-container { font-family: var(--text); background: var(--bg); }
+  .leaflet-bar { border: 0 !important; box-shadow: var(--shadow) !important; border-radius: 10px !important; overflow: hidden; }
+  .leaflet-bar a { width: 34px !important; height: 34px !important; line-height: 34px !important; }
+  .leaflet-control-layers { border: 0 !important; border-radius: 10px !important; box-shadow: var(--shadow) !important; }
+  .listtoggle-wrap { background: transparent !important; }
+  .listtoggle { background: var(--panel); }
+  .leaflet-popup-content-wrapper { border-radius: 16px !important; box-shadow: var(--shadow-lg) !important; }
+  .leaflet-popup-content { font-size: 13px; margin: 14px 16px; }
+  .leaflet-popup-content b:first-of-type { font-weight: 700; }
+  .popup-photo { border-radius: 12px; height: 160px; }
+  .leaflet-popup-content .price { font-size: 20px; }
+  .leaflet-popup-content a.open { font-weight: 700; }
+  .leaflet-container a.leaflet-popup-close-button { top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 8px; font: 18px/24px var(--text); color: var(--muted); background: color-mix(in srgb, var(--panel) 85%, transparent); }
+  .legend { border-radius: 12px; box-shadow: var(--shadow); padding: 10px 12px; font-size: 12px; }
+  .legend:has(> details:not([open])) { padding: 6px 12px; }
+  .area-label span { font-family: var(--text); }
+  .sold, .learn { border-radius: 10px; }
+  .chip { padding: 2px 8px; font-size: 11px; }
+  .tagbtn { padding: 3px 9px; border-radius: 8px; }
+
+  /* Dialogs */
+  .overlay { background: rgba(9, 20, 15, .45); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+  #auth { background: var(--bg); backdrop-filter: none; }
+  .card { border: 0; border-radius: 20px; padding: 24px; box-shadow: var(--shadow-lg); }
+  .card h2 { font: 700 22px/1.2 var(--display); letter-spacing: -.02em; margin-bottom: 8px; }
+  .card h3 { font-size: 15px; font-weight: 700; margin-top: 22px; }
+  .card label.field { font-weight: 500; }
+  .closebtn { width: 32px; height: 32px; border-radius: 10px; background: var(--field); font-size: 20px; display: grid; place-items: center; }
+  .closebtn:hover { background: var(--field-hover); color: var(--ink); }
+  .stat { border: 0; background: var(--field); border-radius: 12px; padding: 10px 12px; }
+  .stat b { font: 700 20px/1.2 var(--display); }
+  .calc-out .row span:last-child { font-variant-numeric: tabular-nums; }
+  .verdict { border-radius: 12px; }
+  #drawbar { border-radius: 14px; box-shadow: var(--shadow-lg); }
+
+  @media (max-width: 760px) {
+    header { padding: 10px 12px 8px; }
+    h1 { font-size: 18px; }
+    h1 .mark { width: 21px; height: 21px; }
+    .tabs { margin: 0; padding: 3px; border-radius: 12px; }
+    .tabs button { height: 34px; }
+    .chipbtn, .themebtn { height: 34px; padding: 0 11px; }
+    header { gap: 8px 6px; }
+    .filtersbtn { display: inline-flex; }
+    .themebtn .val { display: none; }
+    .themebtn { width: 34px; padding: 0; }
+    .themebtn::before { content: ""; width: 15px; height: 15px; border-radius: 50%; border: 2px solid currentColor;
+                        background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+    #settingsBtn { width: 34px; padding: 0; }
+    .viewswitch button { white-space: nowrap; padding: 10px 16px; }
+    body.filters-open .filters { gap: 8px; }
+    .filters label { height: auto; min-height: 44px; flex-direction: column; align-items: stretch; justify-content: center; gap: 0; padding: 5px 4px 5px 12px; font-size: 11.5px; }
+    .filters label:has(input[type=checkbox]) { flex-direction: row; align-items: center; gap: 8px; min-height: 40px; font-size: 13.5px; }
+    .filters select, .filters input[type=number] { height: 26px; font-size: 16px; padding-left: 0; width: 100%; }
+    .item { grid-template-columns: 84px 1fr 58px; padding: 12px; }
+    .thumb { width: 84px; height: 62px; }
+    .viewswitch { border: 0; box-shadow: var(--shadow-lg); background: color-mix(in srgb, var(--panel) 88%, transparent);
+                  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+    .viewswitch button { padding: 10px 20px; }
+    .viewswitch button.on { background: var(--accent); color: var(--on-accent); }
+    .card.wide { border-radius: 20px 20px 0 0; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>Deal Finder</h1>
+  <h1><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 11.2 12 3l9.5 8.2V21H2.5z"/><circle cx="12" cy="13.2" r="2.1"/></svg>Deal Finder</h1>
   <div class="tabs" id="tabs"></div>
   <div class="filters">
     <label>Deals <select id="minScore">
@@ -345,7 +506,7 @@ function applyTheme() {
   if (theme === "auto") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
   document.getElementById("themeBtn").innerHTML =
-    '<span class="lbl">Theme: </span>' + { auto: "Auto", light: "Light", dark: "Dark" }[theme];
+    '<span class="lbl">Theme: </span><span class="val">' + { auto: "Auto", light: "Light", dark: "Dark" }[theme] + '</span>';
   const gl = openFreeMap && openFreeMap.getMaplibreMap && openFreeMap.getMaplibreMap();
   if (gl && gl._dfStyle !== streetStyle()) { gl._dfStyle = streetStyle(); gl.setStyle(streetStyle()); }
 }
