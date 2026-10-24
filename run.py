@@ -23,7 +23,7 @@ from dealfinder import config
 from dealfinder.details import ListingPageReader, parse_property24_page
 from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
 from dealfinder.areas import OutlineFinder, apply_merges, area_pins, place_pins_in_areas, update_areas
-from dealfinder import banksales, digest
+from dealfinder import banksales, digest, websites
 from dealfinder.signals import seller_flags, update_price_history
 from dealfinder.scoring import assign_region, mark_duplicates, norm, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
@@ -309,6 +309,25 @@ def main() -> int:
         bank_line = f"- Bank sales: skipped ({str(e)[:150]})"
     notes.append(bank_line)
 
+    # Agency websites (RE/MAX, Pam Golding, Seeff, Century 21, Chas Everitt, Harcourts), about 5 times a day
+    web_ids: set = set()
+    web_line = "- Agency websites: checked recently, next check in a few hours"
+    try:
+        runs = {x["source"]: x for x in db.select_all("source_runs", order="source")}
+        last = parse_ts((runs.get("websites") or {}).get("last_run"))
+        if not last or now - last >= timedelta(hours=websites.EVERY_HOURS) - timedelta(minutes=40):
+            srcs = [{**src, "region": key} for key, lst in config.REGION_SOURCES.items() for src in lst]
+            found, counts, web_notes = websites.read_websites(srcs)
+            parsed += found
+            web_ids = {r["id"] for r in found}
+            web_line = (f"- Agency websites read: {len(found)} listings from {len(srcs)} pages ("
+                        + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())) + ")"
+                        + "".join(f"\n  - ⚠️ {n}" for n in web_notes[:12]))
+            db.upsert("source_runs", [{"source": "websites", "last_run": now.isoformat(), "note": web_line[2:900]}])
+    except Exception as e:  # noqa: BLE001  (never stops the rest of the run)
+        web_line = f"- Agency websites: skipped ({str(e)[:150]})"
+    notes.append(web_line)
+
     for r in existing.values():
         r["last_seen"] = parse_ts(r.get("last_seen"))
         r["first_seen"] = parse_ts(r.get("first_seen"))
@@ -380,8 +399,8 @@ def main() -> int:
         r["region"] = assign_region(r)
     geo.save()
     n_area_pins = place_pins_in_areas(all_rows.values(), pins)
-    for i in [i for i in bank_ids if i not in existing and all_rows[i].get("region") in (None, "other")]:
-        del all_rows[i]  # bank sales outside your three areas
+    for i in [i for i in bank_ids | web_ids if i not in existing and i in all_rows and all_rows[i].get("region") in (None, "other")]:
+        del all_rows[i]  # bank sales / website listings outside your areas
         new_ids.discard(i)
 
     # 4) Score everything and save -----------------------------------------------

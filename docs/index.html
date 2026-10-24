@@ -517,7 +517,8 @@ const num = v => v == null ? null : +(+v).toFixed(1);
 
 let all = [], twins = {}, notes = {}, markersById = {}, region = "all", user = null, areas = {}, areaPrices = [];
 let admin = false;  // only the admin can change outlines, names and who gets emails (the database enforces this too)
-const SITE = { property24: "Property24", privateproperty: "Private Property", facebook: "Facebook", manual: "your list" };
+const SITE = { property24: "Property24", privateproperty: "Private Property", facebook: "Facebook", manual: "your list",
+  remax: "RE/MAX", pamgolding: "Pam Golding", seeff: "Seeff", century21: "Century 21", chaseveritt: "Chas Everitt", harcourts: "Harcourts" };
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
 const SA_BOUNDS = L.latLngBounds([-35.6, 15.5], [-21.2, 33.5]);
@@ -1046,7 +1047,11 @@ function showRegions() {
       <div><b>${esc(r.label)}</b> <span class="meta">${esc(r.province || "")}</span>
         <div class="opts"><label>radius <input type="number" min="2" max="80" step="1" value="${esc(r.radius_km)}" data-k="radius_km"> km</label>
           <label>name <input type="text" value="${esc(r.label)}" data-k="label" style="width:150px;padding:4px 8px;font-size:14px"></label></div>
-        ${(r.towns || []).some(t => (t.aliases || []).length) ? `<div class="meta">also called ${esc((r.towns || []).flatMap(t => t.aliases || []).join(", "))}</div>` : ""}</div>
+        ${(r.towns || []).some(t => (t.aliases || []).length) ? `<div class="meta">also called ${esc((r.towns || []).flatMap(t => t.aliases || []).join(", "))}</div>` : ""}
+        <details style="margin-top:6px"><summary class="meta" style="cursor:pointer">Agency websites checked (${(r.sources || []).length})</summary>
+          <p class="meta" style="margin:6px 0">One search-results page per line, from RE/MAX, Pam Golding, Seeff, Century 21, Chas Everitt or Harcourts. Open the site, search for the town, and paste the address of the results page. Checked about five times a day.</p>
+          <textarea class="notebox" rows="5" data-sources="${esc(r.key)}" style="font-size:12px">${esc((r.sources || []).map(x => x.url).join("\n"))}</textarea>
+          <button class="watchbtn" data-savesrc="${esc(r.key)}" style="margin-top:6px">Save websites</button></details></div>
       <button class="watchbtn" data-off="${esc(r.key)}">Remove</button>
     </div>`).join("") || `<p class="meta">No areas yet.</p>`;
   box.querySelectorAll("input[data-k]").forEach(inp => inp.addEventListener("change", async () => {
@@ -1056,6 +1061,19 @@ function showRegions() {
     const { error } = await sb.from("regions").update({ [k]: v }).eq("key", key);
     if (error) return alert("Couldn't save: " + error.message);
     await loadRegions(); render(); drawAreas();
+  }));
+  box.querySelectorAll("[data-savesrc]").forEach(b => b.addEventListener("click", async () => {
+    const r = regionRows.find(x => x.key === b.dataset.savesrc);
+    const towns = (r.towns || []).map(t => t.name);
+    const lines = box.querySelector(`[data-sources="${CSS.escape(r.key)}"]`).value.split(/\s+/).map(x => x.trim()).filter(x => /^https:\/\/[^ ]+$/.test(x));
+    const ok = /(remax\.co\.za|pamgolding\.co\.za|seeff\.com|century21\.co\.za|chaseveritt\.co\.za|harcourts\.co\.za)\//;
+    const bad = lines.filter(u => !ok.test(u));
+    if (bad.length) return alert("These aren't from a supported website:\n" + bad.join("\n"));
+    // which of the area's towns a page is for: the one named in its address, else the main town
+    const sources = [...new Set(lines)].map(url => ({ url, town: towns.find(t => url.toLowerCase().includes(normName(t))) || towns[0] || r.label }));
+    const { error } = await sb.from("regions").update({ sources }).eq("key", r.key);
+    if (error) return alert("Couldn't save: " + error.message);
+    await loadRegions(); showRegions();
   }));
   box.querySelectorAll("[data-off]").forEach(b => b.addEventListener("click", async () => {
     const r = regionRows.find(x => x.key === b.dataset.off);
@@ -1093,7 +1111,11 @@ function setUpRegions() {
         const label = $("ra_label").value.trim();
         let key = normName(label) || "area";
         while (regionRows.some(r => r.key === key && r.active)) key += "2";
-        const row = { key, label, lat: +h.lat, lng: +h.lon, radius_km: Math.min(80, Math.max(2, Number($("ra_radius").value) || 15)),
+        const slug = h.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        const provSlug = ($("ra_prov").value.trim() || "").toLowerCase().replace(/[^a-z]+/g, "-");
+        const guesses = [...(provSlug ? [`https://www.remax.co.za/property-for-sale-south-africa/${provSlug}/${slug}`] : []),
+          ...["www.seeff.com", "www.century21.co.za", "www.chaseveritt.co.za", "www.harcourts.co.za"].map(d => `https://${d}/results/residential/for-sale/${slug}/`)];
+        const row = { key, label, lat: +h.lat, lng: +h.lon, sources: guesses.map(url => ({ url, town: h.name })), radius_km: Math.min(80, Math.max(2, Number($("ra_radius").value) || 15)),
           province: $("ra_prov").value.trim() || null, active: true, created_by: user?.email || null,
           sort: Math.max(0, ...regionRows.map(r => r.sort || 0)) + 10,
           towns: [{ name: h.name, lat: +h.lat, lng: +h.lon,
@@ -1101,7 +1123,7 @@ function setUpRegions() {
         const { error } = await sb.from("regions").upsert(row);
         if (error) { $("ra_msg").className = "msg err"; $("ra_msg").textContent = error.message; return; }
         await loadRegions(); showRegions();
-        out.innerHTML = `<p class="msg">${esc(label)} added. Its tab is at the top; listings appear there once its alerts start arriving.</p>`;
+        out.innerHTML = `<p class="msg">${esc(label)} added. Its tab is at the top. I've also filled in its likely pages on RE/MAX, Seeff, Century 21, Chas Everitt and Harcourts (see “Agency websites checked”; any that don't exist show up as a note in the listing check's summary). Add its Pam Golding page there too if you like.</p>`;
         $("rf_q").value = "";
       });
     }));

@@ -12,7 +12,7 @@ BIG_DROP = 0.10         # 10%+ below the first price we saw
 AUCTION_RE = re.compile(r"auction|bidx1|on auction", re.I)
 KEYWORDS = [
     ("deceased_estate", re.compile(r"deceased|late estate|estate late|executor", re.I)),
-    ("urgent_sale", re.compile(r"urgent|must (?:be )?sell|motivated seller|quick sale|priced to sell|reduced for", re.I)),
+    ("urgent_sale", re.compile(r"urgent|distressed|must (?:be )?sell|motivated seller|quick sale|priced to sell|reduced for", re.I)),
     ("fixer_upper", re.compile(r"fixer|tlc|handyman|renovat|needs (?:some )?work|restor", re.I)),
 ]
 BANK_RE = re.compile(r"reposs|bank[\s-]*(sale|owned|assisted|repo)|in possession|\bpip\b", re.I)

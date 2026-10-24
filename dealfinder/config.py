@@ -43,6 +43,7 @@ REGIONS: dict = {}       # key -> {"label", "lat", "lng", "radius_km", "province
 TOWNS: dict = {}         # town name -> (lat, lng, province)
 TOWN_ALIASES: dict = {}  # letters-only lower-case name or alias -> town name ("naboomspruit" -> "Mookgophong")
 P24_TOWN_IDS: dict = {}  # Property24 town id -> (town, province)
+REGION_SOURCES: dict = {}  # area key -> [{"url", "town"}]: agency-website search pages to check
 
 
 def _key(name) -> str:
@@ -54,10 +55,11 @@ def set_regions(rows: list) -> None:
     rows = [r for r in rows if r.get("active", True)]
     if not rows:
         return
-    REGIONS.clear(); TOWNS.clear(); TOWN_ALIASES.clear(); P24_TOWN_IDS.clear()
+    REGIONS.clear(); TOWNS.clear(); TOWN_ALIASES.clear(); P24_TOWN_IDS.clear(); REGION_SOURCES.clear()
     for r in sorted(rows, key=lambda r: (r.get("sort") or 100, r["key"])):
         REGIONS[r["key"]] = {"label": r["label"], "lat": float(r["lat"]), "lng": float(r["lng"]),
                              "radius_km": float(r.get("radius_km") or 20), "province": r.get("province")}
+        REGION_SOURCES[r["key"]] = [s for s in (r.get("sources") or []) if isinstance(s, dict) and s.get("url")]
         towns = r.get("towns") or [{"name": r["label"], "lat": r["lat"], "lng": r["lng"]}]
         for t in towns:
             name = t["name"]

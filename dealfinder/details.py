@@ -65,19 +65,20 @@ class ListingPageReader:
         self.limit, self.pause = limit, pause
         self.visits = 0
         self.blocked: Optional[str] = None
-        self._robots: dict[str, robotparser.RobotFileParser] = {}
+        self._robots: dict[str, str] = {}
 
     def allowed(self, url: str) -> bool:
-        host = urlparse(url).netloc
-        if host not in self._robots:
-            rp = robotparser.RobotFileParser()
+        """robots.txt per the standard (longest matching rule wins; see robots.py)."""
+        from .robots import allowed as robots_allowed
+        parts = urlparse(url)
+        if parts.netloc not in self._robots:
             try:
-                r = requests.get(f"https://{host}/robots.txt", headers={"User-Agent": UA}, timeout=15)
-                rp.parse(r.text.splitlines() if r.status_code == 200 else [])
+                r = requests.get(f"https://{parts.netloc}/robots.txt", headers={"User-Agent": UA}, timeout=15)
+                self._robots[parts.netloc] = r.text if r.status_code == 200 else ""
             except requests.RequestException:
-                rp.parse(["User-agent: *", "Disallow: /"])  # can't check -> don't visit
-            self._robots[host] = rp
-        return self._robots[host].can_fetch(UA, url)
+                self._robots[parts.netloc] = "User-agent: *\nDisallow: /"  # can't check -> don't visit
+        path = (parts.path or "/") + ("?" + parts.query if parts.query else "")
+        return robots_allowed(self._robots[parts.netloc], path)
 
     def read(self, url: str) -> Optional[tuple[str, str]]:
         """(final url, html) or None. Never visits pages robots.txt disallows."""

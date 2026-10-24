@@ -198,3 +198,15 @@ choose ("Make one" suggests a strong one), set a new password, make someone an a
 This runs through the Supabase Edge Function `supabase/functions/manage-people` (deployed to the project),
 which checks the caller is an admin before using the project's secret key. The secret key never reaches the
 browser. Sign-ups stay invite-only.
+
+## Agency websites
+About five times a day (05:17, 09:17, 13:17, 17:17, 21:17) the listing check reads the first results page of
+each agency-website search set up for your areas (Settings → Areas you watch → "Agency websites checked"):
+**RE/MAX, Pam Golding, Seeff, Century 21, Chas Everitt and Harcourts** (`dealfinder/websites.py`).
+Each page is checked against the site's robots.txt (standard longest-match rules, `dealfinder/robots.py`),
+read with an honest user agent and a pause between pages, and a site that pushes back is left alone for
+the rest of the run. Individual listings are never opened. Homes on several sites are shown once.
+
+Tested on 24 Oct 2026: **Property24** (search pages answer 503) and **MyProperty** (security checkpoint)
+block automated visitors, so they stay on email alerts / aren't used. Private Property search pages work
+but are already covered by its alerts and the bank-sales reader.

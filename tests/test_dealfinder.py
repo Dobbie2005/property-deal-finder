@@ -686,3 +686,49 @@ def test_robots_standard_longest_match():
     assert not allowed(pam, "/property-search/3-bedroom-houses/")
     assert allowed("User-agent: *\nDisallow: /ld/*\n", "/for-sale/x/T1") and not allowed("User-agent: *\nDisallow: /ld/*\n", "/ld/T1")
     assert not allowed("User-agent: property-deal-finder\nDisallow: /\nUser-agent: *\nAllow: /\n", "/anything")
+
+
+# --- Agency websites ---------------------------------------------------------------------------
+from dealfinder import websites
+
+
+def _page(name):
+    return (SAMPLES.parent / name).read_text()
+
+
+def test_website_readers_on_real_layouts():
+    r = websites.parse_remax(_page("remax_sample.html"), "https://www.remax.co.za/property-for-sale-south-africa/limpopo/polokwane")
+    assert r[0]["id"] == "remax:39757263" and r[0]["price"] == 5_400_000 and r[0]["suburb"] == "North View Estate"
+    assert r[0]["bedrooms"] == 5 and r[0]["property_type"] == "house" and r[0]["image_url"].startswith("https://cdn.remax")
+    s = websites.parse_seeff(_page("seeff_sample.html"), "https://www.seeff.com/results/residential/for-sale/polokwane/")
+    assert (s[0]["id"], s[0]["price"], s[0]["suburb"], s[0]["bedrooms"], s[0]["bathrooms"]) == ("seeff:3511413", 1_950_000, "Eduan Park", 3, 2)
+    assert s[1]["floor_m2"] == 360 and s[0]["url"].startswith("https://www.seeff.com/results/residential/for-sale/polokwane/")
+    h = websites.parse_property_cards(_page("propdata_sample.html"), "https://www.harcourts.co.za/results/residential/for-sale/x/")
+    assert h[0]["id"] == "harcourts:3513447" and h[0]["property_type"] == "apartment" and h[0]["floor_m2"] == 100
+    assert h[1]["property_type"] == "land" and h[1]["floor_m2"] is None
+    assert h[2]["property_type"] == "house" and h[2]["erf_m2"] == 690 and h[2]["floor_m2"] is None  # 690 m² is the plot
+    assert "Distressed" in h[2]["description"]
+    now = datetime(2026, 10, 24, tzinfo=timezone.utc)
+    assert "urgent_sale" in signals.seller_flags({**h[2], "first_seen": now}, now)
+    p = websites.parse_pamgolding(_page("pamgolding_sample.html"), "https://www.pamgolding.co.za/property-search/properties-for-sale-polokwane/1898")
+    assert p[0]["id"] == "pamgolding:1ps1756274" and p[0]["price"] == 1_550_000 and p[0]["suburb"] == "Rainbow Park"
+    assert p[0]["bedrooms"] == 3 and p[0]["erf_m2"] == 446 and p[0]["description"]
+
+
+def test_read_websites_sets_town_and_skips_a_site_that_pushes_back():
+    pages = {"https://www.seeff.com/a/": _page("seeff_sample.html"), "https://www.seeff.com/b/": _page("seeff_sample.html"),
+             "https://www.harcourts.co.za/results/residential/for-sale/x/": _page("propdata_sample.html")}
+
+    class R(_FakeReader):
+        def read(self, url):
+            if "seeff.com/a" in url:
+                self.blocked = "www.seeff.com answered 429; stopped for this run"
+                return None
+            return super().read(url)
+
+    srcs = [{"url": "https://www.seeff.com/a/", "town": "Naboomspruit"}, {"url": "https://www.seeff.com/b/", "town": "Polokwane"},
+            {"url": "https://www.harcourts.co.za/results/residential/for-sale/x/", "town": "Polokwane"},
+            {"url": "https://www.property24.com/x", "town": "Polokwane"}]
+    found, counts, notes = websites.read_websites(srcs, R(pages))
+    assert counts == {"Harcourts": 3} and any("429" in n for n in notes)  # Seeff skipped for the rest of the run
+    assert {r["city"] for r in found} == {"Polokwane"} and all(r["province"] == "Limpopo" for r in found)
