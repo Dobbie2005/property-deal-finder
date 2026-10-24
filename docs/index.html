@@ -68,7 +68,15 @@
   .chipbtn { border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
   .filtersbtn, .viewswitch { display: none; }
   #settingsBtn { order: 2; }
-  .legend details summary { cursor: pointer; font-weight: 600; list-style: none; }
+  .legend details summary { cursor: pointer; font-weight: 600; list-style: none; user-select: none; }
+  .legend > details > summary::after { content: " ▸"; color: var(--muted); }
+  .legend > details[open] > summary::after { content: " ▾"; }
+  .legend:has(> details:not([open])) { padding: 5px 10px; }
+  .listtoggle { border: 0; background: var(--panel); color: var(--ink); font: inherit; font-size: 12.5px; font-weight: 600;
+                padding: 6px 10px; cursor: pointer; border-radius: 6px; white-space: nowrap; }
+  .listtoggle:hover { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+  body.list-hidden main { grid-template-columns: 0 1fr; }
+  body.list-hidden #list { visibility: hidden; border-right: 0; }
   .legend details summary::-webkit-details-marker { display: none; }
   .legend details[open] summary { margin-bottom: 4px; }
 
@@ -198,6 +206,9 @@
     .leaflet-bottom.leaflet-left .leaflet-control-attribution { display: none; }
     .item { grid-template-columns: 84px 1fr 52px; padding: 10px 12px; }
     .leaflet-control-zoom { display: none; }  /* pinch to zoom on phones */
+    .listtoggle-wrap { display: none; }        /* phones use the Map / List switch */
+    body.list-hidden #list { visibility: visible; }
+    body.list-hidden main { display: block; }
     .popup-photo { height: 110px; }
     .leaflet-popup-content { margin: 12px 14px; }
     .thumb { width: 84px; height: 60px; }
@@ -397,13 +408,37 @@ map.addLayer(cluster);
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = () => {
   const d = L.DomUtil.create("div", "legend");
-  d.innerHTML = `<details ${isPhone() ? "" : "open"}><summary>Key</summary>` + [["--great","15%+ below similar"],["--good","5–15% below"],["--fair","about market"],["--high","above market"],["--none","not enough comps yet"]]
+  let open = !isPhone();
+  try { const v = localStorage.getItem("keyOpen"); if (v != null) open = v === "1"; } catch (e) {}
+  d.innerHTML = `<details ${open ? "open" : ""}><summary title="Show or hide the key">Key</summary>` + [["--great","15%+ below similar"],["--good","5–15% below"],["--fair","about market"],["--high","above market"],["--none","not enough comps yet"]]
     .map(([v, t]) => `<div><span class="dot" style="background:var(${v})"></span>${t}</div>`).join("")
     + `<div style="margin-top:4px;color:var(--muted)">Bubbles show how many listings;<br>colour = best deal inside</div></details>`;
   L.DomEvent.disableClickPropagation(d);
+  d.querySelector("details").addEventListener("toggle", e => { try { localStorage.setItem("keyOpen", e.target.open ? "1" : "0"); } catch (err) {} });
   return d;
 };
 legend.addTo(map);
+
+// Hide / show the list on the left (computers; phones have the Map / List switch)
+const listCtl = L.control({ position: "topleft" });
+listCtl.onAdd = () => {
+  const wrap = L.DomUtil.create("div", "leaflet-bar listtoggle-wrap");
+  wrap.innerHTML = `<button class="listtoggle" id="listToggle"></button>`;
+  L.DomEvent.disableClickPropagation(wrap);
+  return wrap;
+};
+listCtl.addTo(map);
+function setListHidden(hidden) {
+  document.body.classList.toggle("list-hidden", hidden);
+  document.getElementById("listToggle").textContent = hidden ? "▶ Show list" : "◀ Hide list";
+  document.getElementById("listToggle").title = hidden ? "Show the list of listings" : "Hide the list to see more map";
+  try { localStorage.setItem("listHidden", hidden ? "1" : "0"); } catch (e) {}
+  setTimeout(() => map.invalidateSize(), 60);
+}
+let startHidden = false;
+try { startHidden = localStorage.getItem("listHidden") === "1"; } catch (e) {}
+setListHidden(startHidden);
+document.getElementById("listToggle").addEventListener("click", () => setListHidden(!document.body.classList.contains("list-hidden")));
 
 function basisText(l) {
   const s = S(l);
