@@ -521,6 +521,21 @@ const SITE = { property24: "Property24", privateproperty: "Private Property", fa
   remax: "RE/MAX", pamgolding: "Pam Golding", seeff: "Seeff", century21: "Century 21", chaseveritt: "Chas Everitt", harcourts: "Harcourts" };
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
+const APP_VERSION = "2026-10-24b";  // shown in Settings, so you can tell the newest page has loaded
+// Scroll-wheel and trackpad zoom: one level per step, like Google Maps. A fast flick used to jump several
+// levels at once, further than the street map had drawn, which showed as a pale border.
+L.Map.ScrollWheelZoom.include({
+  _performZoom() {
+    const map = this._map, zoom = map.getZoom();
+    map._stop();
+    const step = this._delta > 0 ? 1 : -1;
+    this._delta = 0; this._startTime = null;
+    const delta = map._limitZoom(zoom + step) - zoom;
+    if (!delta) return;
+    if (map.options.scrollWheelZoom === "center") map.setZoom(zoom + delta);
+    else map.setZoomAround(this._lastMousePos, zoom + delta);
+  },
+});
 const SA_BOUNDS = L.latLngBounds([-35.6, 15.5], [-21.2, 33.5]);
 const map = L.map("map", {
   zoomControl: true, maxZoom: 19, minZoom: 5,
@@ -601,6 +616,45 @@ if (openFreeMap) {
   if (map.hasLayer(openFreeMap)) { const gl = openFreeMap.getMaplibreMap(); if (gl) gl.on("styledata", matchBackground); }
 }
 map.on("baselayerchange", matchBackground);
+// Download the streets for the next two zoom levels out while you're looking at the map, so zooming out
+// finds them already in the browser instead of showing an empty background while they load. These are
+// small files (a few dozen per stop) and the browser keeps them, so each one is only fetched once.
+const prefetched = new Set();
+function tileXY(lng, lat, z) {
+  const n = 2 ** z, r = lat * Math.PI / 180;
+  return [Math.floor((lng + 180) / 360 * n), Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n)];
+}
+function prefetchZoomOut() {
+  try {
+    if (navigator.connection && navigator.connection.saveData) return;
+    const gl = openFreeMap && map.hasLayer(openFreeMap) && openFreeMap.getMaplibreMap();
+    if (!gl || !gl.style || !gl.style._loaded) return;
+    const c = map.getCenter(), b = openFreeMap.getBounds();  // the area the street map has drawn
+    const halfW = (b.getEast() - b.getWest()) / 2, halfH = (b.getNorth() - b.getSouth()) / 2;
+    const urls = [];
+    for (const id of Object.keys(gl.getStyle().sources)) {
+      const src = gl.getSource(id);
+      if (!src || src.type !== "vector" || !src.tiles || !src.tiles.length) continue;
+      const maxz = src.maxzoom ?? 14, minz = src.minzoom ?? 0, now = Math.min(Math.floor(gl.getZoom()), maxz);
+      for (const out of [1, 2]) {
+        const z = Math.floor(gl.getZoom()) - out, tz = Math.min(z, maxz);
+        if (tz < minz || tz >= now) continue;
+        const k = 2 ** out, lat = v => Math.max(-85, Math.min(85, v));
+        const [x0, y0] = tileXY(c.lng - halfW * k, lat(c.lat + halfH * k), tz);
+        const [x1, y1] = tileXY(c.lng + halfW * k, lat(c.lat - halfH * k), tz);
+        for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++)
+          urls.push(src.tiles[0].replace("{z}", tz).replace("{x}", x).replace("{y}", y));
+      }
+    }
+    for (const u of urls.filter(u => !prefetched.has(u)).slice(0, 60)) {
+      prefetched.add(u);
+      fetch(u, { priority: "low" }).catch(() => prefetched.delete(u));
+    }
+  } catch (err) {}
+}
+let prefetchTimer = null;
+map.on("moveend", () => { clearTimeout(prefetchTimer); prefetchTimer = setTimeout(prefetchZoomOut, 700); });
+setTimeout(prefetchZoomOut, 3000);
 const cluster = L.markerClusterGroup({
   showCoverageOnHover: false, maxClusterRadius: 40, chunkedLoading: true,
   iconCreateFunction: c => {
@@ -1072,7 +1126,7 @@ async function openSettings() {
       <div class="full"><button class="primary" type="submit">Create account</button><p class="msg" id="pa_msg"></p></div>
     </form>` : ""}
     <h3>Account</h3>
-    <p class="meta">Signed in as ${esc(user?.email || "")}${admin ? " · admin" : ""}</p>
+    <p class="meta">Signed in as ${esc(user?.email || "")}${admin ? " · admin" : ""} · app version ${APP_VERSION}</p>
     <button class="watchbtn" id="signOutBtn">Sign out</button>`);
   $("rcpAdd").addEventListener("submit", async e => {
     e.preventDefault();
