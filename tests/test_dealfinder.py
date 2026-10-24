@@ -671,3 +671,18 @@ def test_regions_from_the_database_and_town_aliases():
         assert "mookgophong" in config.REGIONS
     finally:
         config.set_regions(config.DEFAULT_REGIONS)
+
+
+def test_robots_standard_longest_match():
+    from dealfinder.robots import allowed
+    propdata = "User-Agent: *\nDisallow: /secure/\nDisallow: /results/\nDisallow: /results/*/None\nAllow: /results/*/\nUser-agent: trovitBot\n"
+    assert allowed(propdata, "/results/residential/for-sale/polokwane/")
+    assert not allowed(propdata, "/results/")
+    assert not allowed(propdata, "/results/residential/None")
+    assert not allowed(propdata, "/secure/x")
+    pam = "User-agent: *\nDisallow: /property-search/*-bedroom-*/\nDisallow: /property-search/*?\nUser-agent: AhrefsBot\nDisallow: /\n"
+    assert allowed(pam, "/property-search/properties-for-sale-polokwane/123")
+    assert not allowed(pam, "/property-search/properties-for-sale-polokwane/123?page=2")
+    assert not allowed(pam, "/property-search/3-bedroom-houses/")
+    assert allowed("User-agent: *\nDisallow: /ld/*\n", "/for-sale/x/T1") and not allowed("User-agent: *\nDisallow: /ld/*\n", "/ld/T1")
+    assert not allowed("User-agent: property-deal-finder\nDisallow: /\nUser-agent: *\nAllow: /\n", "/anything")
