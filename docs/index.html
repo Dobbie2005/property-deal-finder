@@ -529,7 +529,7 @@ const map = L.map("map", {
 // Map backgrounds: all free, no API key, and they work when the page is opened as a local file.
 const esri = (service, attribution) => L.tileLayer(
   `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`,
-  { maxZoom: 19, attribution, noWrap: true, bounds: SA_BOUNDS.pad(0.5) });
+  { maxZoom: 19, attribution, noWrap: true, bounds: SA_BOUNDS.pad(0.5), keepBuffer: 4 });
 const esriStreets = esri("World_Street_Map", "Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors");
 const satellite = L.layerGroup([
   esri("World_Imagery", "Imagery &copy; Esri, Maxar, Earthstar Geographics"),
@@ -540,9 +540,40 @@ function webglAvailable() {
   try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); }
   catch (e) { return false; }
 }
-const openFreeMap = (window.L.maplibreGL && webglAvailable())
-  ? L.maplibreGL({
+// The street map is drawn by MapLibre. The plugin's own way of following Leaflet re-draws the whole map
+// 30 times a second while you drag, one frame behind (that's the "sticky" feel), and only draws 10% past
+// the edges of the screen (the white border when zooming out). This version draws half a screen past each
+// edge, lets the browser just slide the finished picture while you drag, re-draws only when you get near
+// the edge or let go, and then re-draws straight away so the picture never jumps.
+const SmoothGL = window.L.MaplibreGL && L.MaplibreGL.extend({
+  getEvents() {
+    const ev = L.MaplibreGL.prototype.getEvents.call(this);
+    ev.move = this._moveSoon;
+    ev.moveend = this._update;
+    return ev;
+  },
+  _moveSoon() {
+    if (this._zooming || !this._glMap || !this._map) return;
+    const p = this._map.containerPointToLayerPoint([0, 0]), last = this._synced;
+    const room = this._map.getSize().multiplyBy(this.options.padding * 0.6);
+    if (!last || Math.abs(p.x - last.x) > room.x || Math.abs(p.y - last.y) > room.y) this._update();
+  },
+  _update(e) {
+    L.MaplibreGL.prototype._update.call(this, e);
+    if (this._zooming || !this._glMap || !this._map) return;
+    this._synced = this._map.containerPointToLayerPoint([0, 0]);
+    try { this._glMap.redraw(); } catch (err) {}
+  },
+  _zoomStart(e) {
+    if (!this._zooming) this._update();  // line the picture up before the zoom animation starts
+    this._zooming = true;
+  },
+});
+const openFreeMap = (SmoothGL && webglAvailable())
+  ? new SmoothGL({
       style: streetStyle(),
+      padding: 0.5, fadeDuration: 0,
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
       attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
     })
   : null;
@@ -554,6 +585,22 @@ try { baseName = localStorage.getItem("baseMap") || "Streets"; } catch (e) {}
 (baseMaps[baseName] || baseMaps.Streets).addTo(map);
 L.control.layers(baseMaps, null, { position: "topright" }).addTo(map);
 map.on("baselayerchange", e => { try { localStorage.setItem("baseMap", e.name); } catch (err) {} });
+// Paint the space behind the map in the street map's own land colour, so any edge that hasn't been drawn
+// yet blends in instead of flashing white.
+function matchBackground() {
+  let c = "";
+  try {
+    const gl = openFreeMap && map.hasLayer(openFreeMap) && openFreeMap.getMaplibreMap();
+    const bg = gl && gl.style && gl.style._loaded && gl.getStyle().layers.find(l => l.type === "background");
+    c = bg ? gl.getPaintProperty(bg.id, "background-color") : "";
+  } catch (err) {}
+  map.getContainer().style.background = typeof c === "string" ? c : "";
+}
+if (openFreeMap) {
+  openFreeMap.on("add", () => { const gl = openFreeMap.getMaplibreMap(); if (gl) gl.on("styledata", matchBackground); matchBackground(); });
+  if (map.hasLayer(openFreeMap)) { const gl = openFreeMap.getMaplibreMap(); if (gl) gl.on("styledata", matchBackground); }
+}
+map.on("baselayerchange", matchBackground);
 const cluster = L.markerClusterGroup({
   showCoverageOnHover: false, maxClusterRadius: 40, chunkedLoading: true,
   iconCreateFunction: c => {
