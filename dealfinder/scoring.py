@@ -62,8 +62,19 @@ def mark_duplicates(rows: list[dict]) -> int:
     return n
 
 
+def _clean(comps: list[dict]) -> list[dict]:
+    """Leave out listings that would skew a comparison: very expensive ones and wild outliers."""
+    comps = [c for c in comps if c.get("price") and c["price"] <= config.MAX_COMP_PRICE]
+    if len(comps) >= 4:
+        mid = median(c["price"] for c in comps)
+        comps = [c for c in comps if mid / config.OUTLIER_FACTOR <= c["price"] <= mid * config.OUTLIER_FACTOR]
+    return comps
+
+
 def _estimate(r: dict, comps: list[dict]) -> Optional[tuple]:
-    """(median, estimate, basis, n) from comparable listings, or None if there aren't enough."""
+    """(median, estimate, basis, n) from comparable listings, or None if there aren't enough.
+    Best first: price per m² (when sizes are known), same bedrooms, then ±1 bedroom adjusted."""
+    comps = _clean(comps)
     floor = r.get("floor_m2")
     ppm = [c["price"] / c["floor_m2"] for c in comps if c.get("floor_m2") and c["floor_m2"] >= 20]
     if floor and floor >= 20 and len(ppm) >= config.MIN_COMPS:
@@ -72,14 +83,22 @@ def _estimate(r: dict, comps: list[dict]) -> Optional[tuple]:
     beds = r.get("bedrooms")
     if beds:
         same = [c["price"] for c in comps if c.get("bedrooms") == beds]
-    elif type_group(r.get("property_type")) == "land":  # plots have no bedrooms: compare plot prices
-        same = [c["price"] for c in comps]
-    else:
-        same = []
-    if len(same) < config.MIN_COMPS:
+        if len(same) >= config.MIN_COMPS:
+            med = median(same)
+            return med, med, "price_same_beds", len(same)
+        # One bedroom more or less, adjusted: a 4-bed at R3m counts as ~R2.6m for a 3-bed
+        similar = [c["price"] * (1 + config.BEDROOM_STEP * (beds - c["bedrooms"]))
+                   for c in comps if c.get("bedrooms") and abs(c["bedrooms"] - beds) <= 1]
+        if len(similar) >= config.MIN_COMPS:
+            med = median(similar)
+            return med, med, "price_similar_beds", len(similar)
         return None
-    med = median(same)
-    return med, med, "price_same_beds", len(same)
+    if type_group(r.get("property_type")) == "land":  # plots have no bedrooms: compare plot prices
+        plots = [c["price"] for c in comps]
+        if len(plots) >= config.MIN_COMPS:
+            med = median(plots)
+            return med, med, "price_same_beds", len(plots)
+    return None
 
 
 def score_listings(rows: list[dict], now: datetime) -> None:

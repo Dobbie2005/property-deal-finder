@@ -20,6 +20,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from dealfinder import config
+from dealfinder.details import ListingPageReader, parse_property24_page
 from dealfinder.parsers import P24_RE, PRICE_RE, extract_details, match_listing, parse_message
 from dealfinder.scoring import assign_region, mark_duplicates, norm, score_listings
 from dealfinder.services import Geocoder, RedirectResolver, Supabase, fetch_recent_emails, send_email
@@ -28,7 +29,7 @@ COLUMNS = ["id", "source", "url", "title", "property_type", "price", "bedrooms",
            "floor_m2", "erf_m2", "suburb", "city", "province", "region", "lat", "lng", "last_seen",
            "suburb_median", "comps_count", "deal_score", "score_basis", "image_url",
            "wide_median", "wide_comps", "wide_score", "wide_basis", "trends_url",
-           "address", "pin_level", "duplicate_of"]
+           "address", "pin_level", "duplicate_of", "levies", "rates", "details_checked"]
 MANUAL_CSV = Path(__file__).parent / "data" / "manual_listings.csv"
 
 
@@ -84,22 +85,62 @@ def merge_into(existing: dict, new: dict) -> dict:
     return merged
 
 
-def add_trend_links(rows: list[dict], limit: int) -> int:
-    """Find each Property24 listing's suburb number (by following its link once) to link the
-    suburb's area-trends page, which shows average asking and sold prices."""
-    resolver = RedirectResolver(limit)
+def add_listing_details(rows: list[dict], reader, now) -> int:
+    """Visit each new Property24 listing once: floor/plot size, levies, rates, and the suburb's
+    area-trends link (from the page's address). Private Property pages are never visited (their
+    robots.txt says no); those get sizes from the same home's Property24 listing, if there is one."""
     done = 0
     for r in rows:
-        if r.get("trends_url") or r.get("source") != "property24" or not r.get("url"):
+        if r.get("details_checked") or r.get("source") != "property24" or not r.get("url"):
             continue
-        final = resolver(r["url"])
-        m = P24_RE.search(final or "")
-        if not m:
+        got = reader.read(r["url"])
+        if got is None:
+            if reader.blocked or reader.visits >= reader.limit:
+                break
             continue
-        sub, city, _prov, sid, _lid = m.groups()
-        r["trends_url"] = f"https://www.property24.com/{city}/{sub}/property-trends/{sid}"
+        final_url, html = got
+        m = P24_RE.search(final_url)
+        if m:
+            sub, city, _prov, sid, _lid = m.groups()
+            r["trends_url"] = f"https://www.property24.com/{city}/{sub}/property-trends/{sid}"
+        facts = parse_property24_page(html)
+        for k, v in facts.items():
+            if v is not None and (k in ("floor_m2", "erf_m2", "levies", "rates") or r.get(k) is None):
+                r[k] = v
+        r["details_checked"] = now
         done += 1
     return done
+
+
+def queue_deal_alerts(rows: list[dict], new_ids: set, drops: dict) -> list[dict]:
+    """New listings and price drops that look like deals (each recipient's own minimum is applied
+    when the Gmail script sends them)."""
+    out = []
+    for r in rows:
+        if r.get("duplicate_of") or r.get("region") in (None, "other"):
+            continue
+        best = max((s for s in (r.get("deal_score"), r.get("wide_score")) if s is not None), default=None)
+        if best is None or best < config.ALERT_QUEUE_MIN:
+            continue
+        if r["id"] in new_ids:
+            out.append({"listing_id": r["id"], "reason": "new", "old_price": None})
+        elif r["id"] in drops:
+            out.append({"listing_id": r["id"], "reason": "price_drop", "old_price": drops[r["id"]]})
+    return out
+
+
+def share_details_with_twins(rows: list[dict]) -> None:
+    """A Private Property copy of a home gets the sizes read from its Property24 twin (and vice versa)."""
+    by_id = {r["id"]: r for r in rows}
+    for r in rows:
+        twin = by_id.get(r.get("duplicate_of") or "")
+        if not twin:
+            continue
+        for k in ("floor_m2", "erf_m2", "levies", "rates"):
+            if r.get(k) is None and twin.get(k) is not None:
+                r[k] = twin[k]
+            elif twin.get(k) is None and r.get(k) is not None:
+                twin[k] = r[k]
 
 
 def looks_like_listing_email(row: dict) -> bool:
@@ -233,10 +274,15 @@ def main() -> int:
 
     all_rows = dict(existing)
     new_ids = set()
+    drops: dict[str, int] = {}  # listing id -> price before this drop
     for rec in parsed:
         rec["last_seen"] = now
         if rec["id"] in all_rows:
+            old_price = all_rows[rec["id"]].get("price")
             all_rows[rec["id"]] = merge_into(all_rows[rec["id"]], rec)
+            new_price = all_rows[rec["id"]].get("price")
+            if old_price and new_price and new_price < old_price:
+                drops[rec["id"]] = drops.get(rec["id"], old_price)
         else:
             rec["first_seen"] = now
             all_rows[rec["id"]] = rec
@@ -257,6 +303,11 @@ def main() -> int:
         if r.get("source") == "privateproperty" and r.get("city") not in config.TOWNS:
             r.update(city=None, province=None, lat=None, lng=None, pin_level=None)
 
+    # Re-check pins placed before pin accuracy was tracked (cheap: the places are cached)
+    for r in all_rows.values():
+        if r.get("pin_level") is None:
+            r.update(lat=None, lng=None)
+
     geo = Geocoder(db)
     known_towns = {norm(r["suburb"]): (r["city"], r.get("province"))
                    for r in sorted(all_rows.values(), key=lambda r: r.get("source") != "property24", reverse=True)
@@ -271,15 +322,22 @@ def main() -> int:
 
     # 4) Score everything and save -----------------------------------------------
     rows = list(all_rows.values())
-    n_trends = add_trend_links(rows, config.MAX_TREND_LOOKUPS_PER_RUN)
+    reader = ListingPageReader(config.MAX_PAGE_VISITS_PER_RUN)
+    n_details = add_listing_details(rows, reader, now)
     n_dupes = mark_duplicates(rows)
+    share_details_with_twins(rows)
     score_listings(rows, now)
     payload = []
     for r in rows:
-        row = {c: r.get(c) for c in COLUMNS}
-        row["last_seen"] = r["last_seen"].isoformat() if r.get("last_seen") else now.isoformat()
+        row = {c: (r.get(c).isoformat() if isinstance(r.get(c), datetime) else r.get(c)) for c in COLUMNS}
+        row["last_seen"] = row["last_seen"] or now.isoformat()
         payload.append(row)
     db.upsert("listings", payload)
+
+    # Queue deal alerts (the Gmail script emails them to the recipients set up on the map)
+    queued = queue_deal_alerts(rows, new_ids, drops)
+    if queued:
+        db.upsert("deal_alerts", queued)
 
     # Mark the copied emails as done, and clear out old ones to keep the database small
     db.mark_processed("raw_emails", [r["id"] for r in raw])
@@ -320,8 +378,10 @@ def main() -> int:
          + (" ⚠️ getting full: lower KEEP_LISTINGS_DAYS in dealfinder/config.py" if size_mb >= config.DB_WARN_MB else "")
          if size_mb is not None else "- Database size: unknown"),
         f"- Old listings removed: {len(stale)}",
-        f"- Area-trend links added: {n_trends}",
+        f"- Listing pages read for sizes: {n_details}"
+        + (f" ⚠️ {reader.blocked}" if reader.blocked else ""),
         f"- Homes listed on both sites (shown once): {n_dupes}",
+        f"- Deal alerts queued for email: {len(queued)}",
         *notes,
         "",
         "### Top 10 deals right now",

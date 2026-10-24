@@ -19,6 +19,9 @@ const INGEST_TOKEN = 'PASTE_TOKEN_HERE';
 const GITHUB_TOKEN = '';
 const GITHUB_REPO = 'Dobbie2005/property-deal-finder';
 
+// Where the map lives (used for the "Open the map" link in deal alert emails)
+const MAP_URL = 'https://dobbie2005.github.io/property-deal-finder/';
+
 const EVERY_MINUTES = 15;     // Apps Script allows 1, 5, 10, 15 or 30
 const LOOKBACK_DAYS = 3;      // how far back the very first run looks
 const MAX_THREADS = 200;      // safety cap per run
@@ -40,6 +43,7 @@ function syncListingEmails() {
     console.log(`Checked ${checked} recent email(s): ${added} new, ${alreadyThere} already copied.`);
     if (added > 0) startGithubJob_();
     heartbeat_(checked, added, null);
+    sendDealAlerts_();
   } catch (err) {
     heartbeat_(checked, added, String(err && err.message || err));
     throw err;
@@ -114,6 +118,76 @@ function startGithubJob_() {
     // Don't stop the email sync; the daily scheduled run will still pick the emails up.
     console.error(`Could not start the GitHub job (${res.getResponseCode()}): ${res.getContentText().slice(0, 300)}`);
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Deal alerts: the GitHub job queues new listings / price drops that look like deals; this emails
+// them to the recipients set up on the map (Settings -> Deal alerts), each with their own minimum.
+// ---------------------------------------------------------------------------------------------
+function rpc_(fn, args) {
+  const res = UrlFetchApp.fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'post', contentType: 'application/json', headers: { apikey: SUPABASE_PUBLISHABLE_KEY },
+    payload: JSON.stringify(Object.assign({ p_token: INGEST_TOKEN }, args || {})), muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() >= 300) throw new Error(`${fn} failed (${res.getResponseCode()}): ${res.getContentText().slice(0, 300)}`);
+  const text = res.getContentText();
+  return text ? JSON.parse(text) : null;
+}
+
+const rand_ = v => v ? 'R ' + Math.round(v).toLocaleString('en-ZA').replace(/[,\u00a0]/g, ' ') : 'POA';
+const esc_ = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function sendDealAlerts_() {
+  try {
+    const data = rpc_('pending_alerts');
+    const alerts = (data && data.alerts) || [];
+    if (!alerts.length) return;
+    (data.recipients || []).forEach(rcp => {
+      const picks = alerts.filter(a => {
+        if (a.reason === 'price_drop' && !rcp.include_drops) return false;
+        const score = rcp.include_nearby ? Math.max(a.deal_score ?? -999, a.wide_score ?? -999) : (a.deal_score ?? -999);
+        return score >= Number(rcp.min_score);
+      });
+      if (!picks.length) return;
+      MailApp.sendEmail({ to: rcp.email, name: 'Deal Finder', subject: alertSubject_(picks), htmlBody: alertHtml_(picks, rcp) });
+    });
+    rpc_('mark_alerts_sent', { p_ids: alerts.map(a => a.id) });
+    console.log(`Deal alerts: ${alerts.length} checked, sent to ${(data.recipients || []).length} recipient(s) where they matched.`);
+  } catch (e) {
+    console.error(`Deal alerts not sent: ${e}`);  // the email sync itself still counts as done
+  }
+}
+
+function scoreOf_(a) {
+  if (a.deal_score != null) return { s: a.deal_score, n: a.comps_count, where: 'in ' + a.suburb };
+  return { s: a.wide_score, n: a.wide_comps, where: 'within 3 km' };
+}
+
+function alertSubject_(picks) {
+  const best = picks.map(a => ({ a, s: scoreOf_(a).s })).sort((x, y) => y.s - x.s)[0];
+  const n = picks.length;
+  return `${n} property deal${n === 1 ? '' : 's'}: best ${Math.round(best.s)}% below similar in ${best.a.suburb}`;
+}
+
+function alertHtml_(picks, rcp) {
+  const cards = picks.map(a => {
+    const sc = scoreOf_(a);
+    const drop = a.reason === 'price_drop' && a.old_price ? `<div style="color:#1a9850;font-weight:600">Price dropped from ${rand_(a.old_price)}</div>` : '';
+    const img = a.image_url ? `<img src="${esc_(a.image_url)}" width="160" style="border-radius:8px;display:block" alt="">` : '';
+    return `<tr><td style="padding:10px 12px 10px 0;vertical-align:top">${img}</td>
+      <td style="padding:10px 0;vertical-align:top;font-family:Arial,sans-serif;font-size:14px">
+        <div style="font-size:17px;font-weight:700">${rand_(a.price)}</div>${drop}
+        <div>${esc_(a.title || ((a.bedrooms ? a.bedrooms + ' bed ' : '') + (a.property_type || 'property') + ' in ' + a.suburb))}</div>
+        <div style="color:#666">${esc_(a.suburb)}, ${esc_(a.city || '')}</div>
+        <div style="margin-top:4px"><b>${Math.round(sc.s)}% below</b> similar homes ${esc_(sc.where)} (${sc.n} compared)</div>
+        <div style="margin-top:6px"><a href="${esc_(a.url)}">Open listing</a> &nbsp;·&nbsp; <a href="${esc_(MAP_URL)}">Open the map</a></div>
+      </td></tr>`;
+  }).join('');
+  return `<div style="font-family:Arial,sans-serif">
+    <p>New deals at least ${esc_(rcp.min_score)}% below similar homes:</p>
+    <table cellspacing="0" cellpadding="0">${cards}</table>
+    <p style="color:#888;font-size:12px">Scores compare asking prices with similar listings, not sold prices. Check the area's sold prices before offering.
+    Change these alerts on the map under Settings.</p></div>`;
 }
 
 /** Run this once: installs the 15-minute schedule and does a first sync. */

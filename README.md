@@ -104,3 +104,30 @@ python run.py --eml tests/sample_emails  # parse sample emails without touching 
 - **Supabase free plan**: no card on file, so you can't be billed. If you ever hit a limit (500 MB is far more than this needs), the project gets restricted, not charged. Free projects pause after 7 days of no activity; the daily job keeps it active.
 - **GitHub Actions**: one short run a day fits well within the free minutes.
 - GitHub turns off scheduled jobs in **public** repos after 60 days with no commits. If that happens, click "Enable workflow" on the Actions tab.
+
+
+## Sign-in (invite only)
+The map only shows listings to signed-in users, and only email addresses on the invite list
+(`private.allowed_emails` in Supabase) can create an account. To invite someone, add their email there
+(lower case). In Supabase → Authentication → URL Configuration, set the **Site URL** to the map's
+address so confirmation and password-reset links come back to the map.
+
+## Shortlist and notes
+Each popup has **☆ Shortlist** and a notes box. Both of you see the same shortlist and notes.
+Filters → "shortlist only" shows just those.
+
+## Flip calculator
+Each popup has a **Flip calculator**: resale value (estimated from the top quarter of similar homes'
+asking prices — edit it), renovation, transfer duty (SARS 2026/27 table), attorney fees, running costs
+(listing levies + rates when known), optional bond interest, agent commission, and the 70% rule.
+
+## Deal alerts
+Settings → Deal alert emails: add any email, choose how far below similar homes a listing must be,
+whether to use the nearby-suburbs score, and whether price drops count. The Gmail script sends them
+(usually within 15–30 minutes of the alert arriving).
+
+## Floor sizes
+Each new Property24 listing's page is read once (politely, honest user agent, pauses, stops if the
+site pushes back, and never where robots.txt disallows it) for floor size, plot size, levies and rates.
+Private Property's robots.txt disallows this, so its listings borrow sizes from the same home on
+Property24 when there is one.

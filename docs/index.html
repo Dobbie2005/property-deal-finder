@@ -66,9 +66,46 @@
   .leaflet-control-attribution a { color: var(--accent) !important; }
   .chipbtn { border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
   .filtersbtn, .viewswitch { display: none; }
+  #settingsBtn { order: 2; }
   .legend details summary { cursor: pointer; font-weight: 600; list-style: none; }
   .legend details summary::-webkit-details-marker { display: none; }
   .legend details[open] summary { margin-bottom: 4px; }
+
+  /* ---------- Sign-in, dialogs, shortlist, calculator ---------- */
+  .overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,.55); display: grid; place-items: center; padding: 16px; }
+  .overlay[hidden] { display: none; }
+  #auth { background: var(--bg); }
+  .card { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; padding: 20px; width: 100%; max-width: 380px;
+          box-shadow: 0 10px 40px rgba(0,0,0,.35); max-height: calc(100dvh - 32px); overflow-y: auto; }
+  .card.wide { max-width: 560px; }
+  .card h2 { margin: 0 0 6px; font-size: 19px; }
+  .card h3 { margin: 18px 0 8px; font-size: 15px; }
+  .card label.field { display: block; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+  .card input[type=email], .card input[type=password], .card input[type=number], .card input[type=text], .card textarea {
+    width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  .primary { width: 100%; margin-top: 14px; border: 0; border-radius: 999px; padding: 10px 16px; background: var(--accent); color: #fff; font: inherit; font-weight: 650; cursor: pointer; }
+  .primary.small { width: auto; margin-top: 0; padding: 7px 14px; }
+  .linkbtn { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 8px 0 0; display: block; }
+  .msg { font-size: 13px; margin: 8px 0 0; }
+  .msg.err { color: var(--high); }
+  .closebtn { float: right; border: 0; background: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
+  .rcp { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .rcp .opts { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; color: var(--muted); }
+  .rcp input[type=number] { width: 64px; padding: 4px 6px; font-size: 14px; }
+  .watchbtn { white-space: nowrap; align-self: start; border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .watchbtn.on { background: #e8b33a; border-color: #e8b33a; color: #1d2320; }
+  .notebox { width: 100%; margin-top: 6px; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); resize: vertical; }
+  .popup-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .star { color: #e8b33a; }
+  .calc { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+  .calc label.field { margin-top: 6px; }
+  .calc .full { grid-column: 1 / -1; }
+  .calc-out { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; font-size: 13.5px; }
+  .calc-out .row { display: flex; justify-content: space-between; padding: 3px 0; }
+  .calc-out .row.total { font-weight: 700; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 6px; }
+  .verdict { margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-weight: 600; }
+  .verdict.good { background: color-mix(in srgb, var(--great) 18%, transparent); }
+  .verdict.bad { background: color-mix(in srgb, var(--high) 18%, transparent); }
 
   /* ---------- Phones ---------- */
   @media (max-width: 760px) {
@@ -78,6 +115,7 @@
     .filtersbtn { display: inline-flex; gap: 6px; order: 2; margin-left: auto; }
     .themebtn { order: 3; margin-left: 0; padding: 6px 10px; }
     .themebtn .lbl { display: none; }
+    #settingsBtn { order: 3; padding: 6px 10px; }
     .tabs { order: 4; flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
     .tabs::-webkit-scrollbar { display: none; }
     .tabs button { white-space: nowrap; flex: 0 0 auto; }
@@ -103,6 +141,10 @@
     .popup-photo { height: 110px; }
     .leaflet-popup-content { margin: 12px 14px; }
     .thumb { width: 84px; height: 60px; }
+    .overlay { padding: 0; align-items: end; }
+    #auth { align-items: center; padding: 16px; }
+    .card.wide { max-width: none; border-radius: 16px 16px 0 0; max-height: 92dvh; }
+    .calc { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -135,11 +177,13 @@
         <option value="newest">newest first</option>
       </select></label>
     <label><input type="checkbox" id="dropsOnly"> price dropped</label>
+    <label><input type="checkbox" id="watchedOnly"> shortlist only</label>
     <label title="When a suburb has too few similar listings, also compare with suburbs within 3 km">Compare with
       <select id="compare"><option value="suburb">same suburb</option><option value="nearby">+ nearby suburbs</option></select></label>
   </div>
   <button class="chipbtn filtersbtn" id="filtersBtn" aria-expanded="false">Filters</button>
   <button class="themebtn" id="themeBtn" title="Switch between automatic, light and dark"><span class="lbl">Theme: </span>Auto</button>
+  <button class="chipbtn" id="settingsBtn" title="Deal alert emails and account">Settings</button>
 </header>
 <main>
   <div id="list"><div class="empty">Loading listings…</div></div>
@@ -149,12 +193,31 @@
   <button id="viewMap" class="on">Map</button><button id="viewList">List</button>
 </nav>
 
+<div id="auth" class="overlay" hidden>
+  <form class="card" id="authForm">
+    <h2>Deal Finder</h2>
+    <p class="meta" id="authIntro">Sign in to see the listings.</p>
+    <label class="field" for="authEmail">Email</label>
+    <input type="email" id="authEmail" required autocomplete="email">
+    <label class="field" for="authPass">Password</label>
+    <input type="password" id="authPass" required minlength="8" autocomplete="current-password">
+    <button type="submit" class="primary" id="authSubmit">Sign in</button>
+    <p class="msg" id="authMsg"></p>
+    <button type="button" class="linkbtn" id="authToggle">First time here? Create your account</button>
+    <button type="button" class="linkbtn" id="authForgot">Forgot your password?</button>
+  </form>
+</div>
+
+<div id="modal" class="overlay" hidden><div class="card wide" id="modalBody"></div></div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
-// Publishable key: safe to share. The database only allows reading with it.
+// Publishable key: safe to share. Nothing can be read with it until you sign in, and only
+// invited email addresses can create an account.
 const SUPABASE_URL = "https://oqctqrhxeuqlhopnmsmt.supabase.co";
 const SUPABASE_KEY = "sb_publishable_n3s6e7fY50SPVjm6eZgFeA_Lb0262BE";
 
@@ -208,7 +271,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const rand = v => v ? "R " + Math.round(v).toLocaleString("en-ZA").replace(/,/g, " ") : "POA";
 const num = v => v == null ? null : +(+v).toFixed(1);
 
-let all = [], twins = {}, region = "all";
+let all = [], twins = {}, notes = {}, markersById = {}, region = "all", user = null;
 const SITE = { property24: "Property24", privateproperty: "Private Property", facebook: "Facebook", manual: "your list" };
 try { region = localStorage.getItem("region") || "all"; } catch (e) {}
 
@@ -278,9 +341,12 @@ function basisText(l) {
   const nearby = (s.basis || "").startsWith("nearby_");
   const where = nearby ? "within 3 km (nearby suburbs)" : `in ${esc(l.suburb)}`;
   const what = l.bedrooms ? `${num(l.bedrooms)}-bed listings` : (l.property_type === "land" ? "plots" : "listings");
-  const how = (s.basis || "").endsWith("price_per_m2")
+  const b = s.basis || "";
+  const how = b.endsWith("price_per_m2")
     ? `${dir} the median of ${rand(s.median)}/m² across ${s.comps} similar listings ${where}.`
-    : `${dir} the median price of ${s.comps} other ${what} ${where}.`;
+    : b.endsWith("price_similar_beds")
+      ? `${dir} the median of ${s.comps} listings with ${num(l.bedrooms) - 1}–${num(l.bedrooms) + 1} bedrooms ${where}, adjusted for bedrooms.`
+      : `${dir} the median price of ${s.comps} other ${what} ${where}.`;
   return `${how} <span class="meta">(${nearby ? "nearby comparison, " : ""}${confidence(s.comps)})</span>`;
 }
 
@@ -304,7 +370,16 @@ function popup(l) {
       : l.pin_level === "town" ? "Pin is at the town centre (suburb not found)." : "Pin is at the suburb centre."}</div>
     <a class="open" href="${esc(l.url)}" target="_blank" rel="noopener">Open on ${SITE[l.source] || "site"} ↗</a>
     ${(twins[l.id] || []).map(t => `&nbsp;·&nbsp;<a class="open" href="${esc(t.url)}" target="_blank" rel="noopener">Also on ${SITE[t.source] || "another site"} ↗</a>`).join("")}
-    ${l.trends_url ? `&nbsp;·&nbsp;<a class="open" href="${esc(l.trends_url)}" target="_blank" rel="noopener" title="Average asking and sold prices for ${esc(l.suburb)} on Property24">Area sold prices ↗</a>` : ""}</div>`;
+    ${l.trends_url ? `&nbsp;·&nbsp;<a class="open" href="${esc(l.trends_url)}" target="_blank" rel="noopener" title="Average asking and sold prices for ${esc(l.suburb)} on Property24">Area sold prices ↗</a>` : ""}
+    <div class="popup-actions">
+      <button class="watchbtn ${notes[l.id]?.watched ? "on" : ""}" onclick="dfToggleWatch('${esc(l.id)}')">${notes[l.id]?.watched ? "★ On shortlist" : "☆ Shortlist"}</button>
+      <button class="watchbtn" onclick="dfFlip('${esc(l.id)}')">Flip calculator</button>
+    </div>
+    <textarea class="notebox" rows="2" placeholder="Notes for you and your dad…" id="note-${esc(l.id)}">${esc(notes[l.id]?.note || "")}</textarea>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span class="meta">${notes[l.id]?.updated_by ? `Saved by ${esc(notes[l.id].updated_by)}, ${ageText(notes[l.id].updated_at)}` : ""}</span>
+      <button class="watchbtn" onclick="dfSaveNote('${esc(l.id)}')">Save note</button>
+    </div></div>`;
 }
 
 function filtered() {
@@ -313,6 +388,7 @@ function filtered() {
   const minBeds = +document.getElementById("minBeds").value;
   const ptype = document.getElementById("ptype").value;
   const drops = document.getElementById("dropsOnly").checked;
+  const watchedOnly = document.getElementById("watchedOnly").checked;
   const maxAge = +document.getElementById("maxAge").value;
   const sortBy = document.getElementById("sortBy").value;
   const price = l => l.price || null;  // listings without a price ("POA") always go last
@@ -329,14 +405,15 @@ function filtered() {
     (!l.price || l.price <= maxPrice) &&
     (!minBeds || (l.bedrooms || 0) >= minBeds) &&
     (!ptype || l.property_type === ptype) &&
-    (!drops || (l.first_price && l.price < l.first_price))
+    (!drops || (l.first_price && l.price < l.first_price)) &&
+    (!watchedOnly || notes[l.id]?.watched)
   ).sort(sorters[sortBy] || sorters.deal);
 }
 
 function render() {
   const rows = filtered();
   cluster.clearLayers();
-  const markers = {};
+  const markers = markersById = {};
   for (const l of rows) {
     if (l.lat == null) continue;
     const icon = L.divIcon({ className: "", html: `<div class="pin" style="background:${colour(S(l).score)}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
@@ -353,14 +430,15 @@ function render() {
   document.getElementById("viewList").textContent = `List (${rows.length})`;
   const active = [+document.getElementById("minScore").value !== -999, !!document.getElementById("maxPrice").value,
     document.getElementById("minBeds").value !== "0", !!document.getElementById("ptype").value,
-    document.getElementById("maxAge").value !== "90", document.getElementById("dropsOnly").checked, compareMode !== "suburb"]
+    document.getElementById("maxAge").value !== "90", document.getElementById("dropsOnly").checked, compareMode !== "suburb",
+    document.getElementById("watchedOnly").checked]
     .filter(Boolean).length;
   document.getElementById("filtersBtn").textContent = active ? `Filters (${active})` : "Filters";
   list.innerHTML = `<div class="summary">${rows.length} listing${rows.length === 1 ? "" : "s"} shown · ${scored} scored · ${all.length} in total</div>` +
     (rows.length ? rows.slice(0, 300).map(l => `
       <div class="item" data-id="${esc(l.id)}">
         ${photo(l, "thumb")}
-        <div><div class="price">${rand(l.price)}</div>
+        <div><div class="price">${notes[l.id]?.watched ? '<span class="star">★</span> ' : ""}${rand(l.price)}${notes[l.id]?.note ? " 📝" : ""}</div>
           ${l.first_price && l.price < l.first_price ? `<div class="drop">was ${rand(l.first_price)}</div>` : ""}
           <div class="meta">${esc(l.suburb)}, ${esc(l.city || "")}</div>
           <div class="meta">${[l.bedrooms && num(l.bedrooms) + " bed", l.floor_m2 && num(l.floor_m2) + " m²", l.property_type].filter(Boolean).join(" · ")}</div>
@@ -394,7 +472,7 @@ for (const id of ["maxAge", "sortBy"]) {  // remember these between visits
   try { const saved = localStorage.getItem(id); if (saved && [...el.options].some(o => o.value === saved)) el.value = saved; } catch (e) {}
   el.addEventListener("input", () => { try { localStorage.setItem(id, el.value); } catch (e) {} });
 }
-["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly", "maxAge", "sortBy"].forEach(id =>
+["minScore", "maxPrice", "minBeds", "ptype", "dropsOnly", "watchedOnly", "maxAge", "sortBy"].forEach(id =>
   document.getElementById(id).addEventListener("input", render));
 const compareSel = document.getElementById("compare");
 compareSel.value = compareMode === "nearby" ? "nearby" : "suburb";
@@ -404,16 +482,21 @@ compareSel.addEventListener("input", () => {
   render();
 });
 
-async function load() {
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function selectAll(table, order) {
   const rows = [];
-  for (let offset = 0; ; offset += 1000) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/listings?select=*&order=id&limit=1000&offset=${offset}`,
-      { headers: { apikey: SUPABASE_KEY } });
-    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-    const batch = await res.json();
-    rows.push(...batch);
-    if (batch.length < 1000) break;
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from(table).select("*").order(order).range(from, from + 999);
+    if (error) throw new Error(error.message);
+    rows.push(...data);
+    if (data.length < 1000) break;
   }
+  return rows;
+}
+async function load() {
+  const [rows, noteRows] = await Promise.all([selectAll("listings", "id"), selectAll("listing_notes", "listing_id")]);
+  notes = Object.fromEntries(noteRows.map(n => [n.listing_id, n]));
   return rows;
 }
 
@@ -440,7 +523,8 @@ applyTheme();
 
 if (!REGIONS[region]) region = "all";
 setRegion(region, false);
-load().then(rows => {
+function loadAndShow() {
+  return load().then(rows => {
     twins = {};
     for (const l of rows) if (l.duplicate_of) (twins[l.duplicate_of] ||= []).push(l);
     all = rows.filter(l => !l.duplicate_of);
@@ -450,6 +534,247 @@ load().then(rows => {
     document.getElementById("list").innerHTML =
       `<div class="empty">Couldn't load listings (${esc(err.message)}). If the database was paused for inactivity, open Supabase and restore it.</div>`;
   });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sign-in (only invited emails can create an account)
+// ---------------------------------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+let authMode = "signin";
+function showAuth(show, intro) {
+  $("auth").hidden = !show;
+  if (intro) $("authIntro").textContent = intro;
+}
+function setAuthMode(mode) {
+  authMode = mode;
+  $("authSubmit").textContent = mode === "signup" ? "Create account" : "Sign in";
+  $("authToggle").textContent = mode === "signup" ? "Already have an account? Sign in" : "First time here? Create your account";
+  $("authPass").autocomplete = mode === "signup" ? "new-password" : "current-password";
+  $("authIntro").textContent = mode === "signup"
+    ? "Use the email address you were invited with, and choose a password (8+ characters)."
+    : "Sign in to see the listings.";
+  $("authMsg").textContent = "";
+}
+function authError(e) {
+  const m = (e && e.message) || String(e);
+  if (/database error|invite-only/i.test(m)) return "This email isn't on the invite list. Ask to have it added.";
+  if (/invalid login/i.test(m)) return "Wrong email or password.";
+  if (/email not confirmed/i.test(m)) return "Please click the confirmation link we emailed you first.";
+  return m;
+}
+$("authToggle").addEventListener("click", () => setAuthMode(authMode === "signup" ? "signin" : "signup"));
+$("authForgot").addEventListener("click", async () => {
+  const email = $("authEmail").value.trim();
+  if (!email) { $("authMsg").textContent = "Type your email above first."; return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.href.split("#")[0] });
+  $("authMsg").className = "msg" + (error ? " err" : "");
+  $("authMsg").textContent = error ? authError(error) : "If that email has an account, a reset link is on its way.";
+});
+$("authForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const email = $("authEmail").value.trim(), password = $("authPass").value;
+  $("authSubmit").disabled = true;
+  const { data, error } = authMode === "signup"
+    ? await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.href.split("#")[0] } })
+    : await sb.auth.signInWithPassword({ email, password });
+  $("authSubmit").disabled = false;
+  $("authMsg").className = "msg" + (error ? " err" : "");
+  if (error) { $("authMsg").textContent = authError(error); return; }
+  if (authMode === "signup" && !data.session) {
+    $("authMsg").textContent = "Account created. Check your email for a confirmation link, then sign in here.";
+    setTimeout(() => setAuthMode("signin"), 50);
+  }
+});
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (event === "PASSWORD_RECOVERY") {
+    const pw = prompt("Choose a new password (8+ characters):");
+    if (pw && pw.length >= 8) {
+      const { error } = await sb.auth.updateUser({ password: pw });
+      alert(error ? authError(error) : "Password changed.");
+    }
+  }
+  const signedIn = !!session;
+  const changed = (user?.id || null) !== (session?.user?.id || null);
+  user = session?.user || null;
+  showAuth(!signedIn, "Sign in to see the listings.");
+  if (signedIn && changed) loadAndShow();
+  if (!signedIn) { all = []; notes = {}; render(); }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Shortlist and notes (shared between both of you)
+// ---------------------------------------------------------------------------------------------
+async function saveNoteRow(id, patch) {
+  const row = { listing_id: id, watched: notes[id]?.watched || false, note: notes[id]?.note || null,
+                ...patch, updated_by: user?.email || null, updated_at: new Date().toISOString() };
+  const { error } = await sb.from("listing_notes").upsert(row);
+  if (error) { alert("Couldn't save: " + error.message); return; }
+  notes[id] = row;
+  render();
+  const m = markersById[id];
+  if (m) cluster.zoomToShowLayer(m, () => m.openPopup());
+}
+window.dfToggleWatch = id => saveNoteRow(id, { watched: !notes[id]?.watched });
+window.dfSaveNote = id => saveNoteRow(id, { note: ($("note-" + id)?.value || "").trim() || null });
+
+// ---------------------------------------------------------------------------------------------
+// Dialogs: Settings (deal alert emails, account) and the flip calculator
+// ---------------------------------------------------------------------------------------------
+function openModal(html) { $("modalBody").innerHTML = html; $("modal").hidden = false; }
+function closeModal() { $("modal").hidden = true; $("modalBody").innerHTML = ""; }
+$("modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("modal").hidden) closeModal(); });
+window.dfClose = closeModal;
+
+async function openSettings() {
+  const { data: rcps, error } = await sb.from("alert_recipients").select("*").order("created_at");
+  const rows = (rcps || []).map(r => `
+    <div class="rcp" data-id="${esc(r.id)}">
+      <div><b>${esc(r.email)}</b>
+        <div class="opts">
+          <label>at least <input type="number" min="0" max="80" step="1" value="${esc(r.min_score)}" data-k="min_score">% below</label>
+          <label><input type="checkbox" data-k="include_nearby" ${r.include_nearby ? "checked" : ""}> use nearby suburbs</label>
+          <label><input type="checkbox" data-k="include_drops" ${r.include_drops ? "checked" : ""}> price drops</label>
+          <label><input type="checkbox" data-k="active" ${r.active ? "checked" : ""}> on</label>
+        </div></div>
+      <button class="watchbtn" data-del="${esc(r.id)}">Remove</button>
+    </div>`).join("");
+  openModal(`
+    <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
+    <h2>Settings</h2>
+    <h3>Deal alert emails</h3>
+    <p class="meta">When a new listing (or a price drop) is at least this much below similar homes, these addresses get an email, usually within 15–30 minutes.</p>
+    ${error ? `<p class="msg err">${esc(error.message)}</p>` : rows || `<p class="meta">No one gets alerts yet.</p>`}
+    <form id="rcpAdd" style="display:flex;gap:8px;margin-top:12px">
+      <input type="email" id="rcpEmail" placeholder="name@gmail.com" required style="flex:1">
+      <button class="primary small" type="submit">Add</button>
+    </form>
+    <p class="msg" id="rcpMsg"></p>
+    <h3>Account</h3>
+    <p class="meta">Signed in as ${esc(user?.email || "")}</p>
+    <button class="watchbtn" id="signOutBtn">Sign out</button>`);
+  $("rcpAdd").addEventListener("submit", async e => {
+    e.preventDefault();
+    const { error } = await sb.from("alert_recipients").insert({ email: $("rcpEmail").value.trim().toLowerCase(), added_by: user?.email });
+    if (error) { $("rcpMsg").className = "msg err"; $("rcpMsg").textContent = /duplicate/i.test(error.message) ? "That email is already on the list." : error.message; return; }
+    openSettings();
+  });
+  $("modalBody").querySelectorAll(".rcp input").forEach(inp => inp.addEventListener("change", async () => {
+    const id = inp.closest(".rcp").dataset.id, k = inp.dataset.k;
+    const v = inp.type === "checkbox" ? inp.checked : Number(inp.value);
+    const { error } = await sb.from("alert_recipients").update({ [k]: v }).eq("id", id);
+    if (error) alert("Couldn't save: " + error.message);
+  }));
+  $("modalBody").querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Stop sending deal alerts to this email?")) return;
+    await sb.from("alert_recipients").delete().eq("id", b.dataset.del);
+    openSettings();
+  }));
+  $("signOutBtn").addEventListener("click", async () => { closeModal(); await sb.auth.signOut(); });
+}
+$("settingsBtn").addEventListener("click", openSettings);
+
+// ----- Flip calculator --------------------------------------------------------------------------
+// South African transfer duty for individuals, 1 March 2026 - 28 February 2027 (SARS tables)
+function transferDuty(v) {
+  const b = [[13_310_000, 1_241_456, .13], [2_994_800, 106_784, .11], [2_329_300, 53_544, .08],
+             [1_663_800, 13_614, .06], [1_210_000, 0, .03]];
+  for (const [from, base, rate] of b) if (v > from) return base + (v - from) * rate;
+  return 0;
+}
+const typeGroup = t => ["apartment", "land", "farm", "commercial"].includes(t) ? t : "house";
+const normName = s => (s || "").toLowerCase().replace(/[^a-z]/g, "");
+function km(a, b) {
+  const r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(x));
+}
+function quantile(xs, q) {
+  const s = [...xs].sort((a, b) => a - b), i = (s.length - 1) * q, lo = Math.floor(i);
+  return s[lo] + (s[Math.ceil(i)] - s[lo]) * (i - lo);
+}
+// Resale value after renovation: the top quarter of what similar homes are asking, since renovated
+// homes sell at the upper end. Same suburb first, then within 3 km.
+function resaleEstimate(l) {
+  const group = typeGroup(l.property_type);
+  const pool = all.filter(c => c.id !== l.id && c.price && c.price <= 20e6 && typeGroup(c.property_type) === group);
+  const sets = [[pool.filter(c => normName(c.suburb) === normName(l.suburb)), `in ${l.suburb}`]];
+  if (l.lat != null) sets.push([pool.filter(c => c.lat != null && km(l, c) <= 3), "within 3 km"]);
+  for (const [set, where] of sets) {
+    if (l.floor_m2) {
+      const ppm = set.filter(c => c.floor_m2 >= 20).map(c => c.price / c.floor_m2);
+      if (ppm.length >= 3) return { value: quantile(ppm, .75) * l.floor_m2, n: ppm.length,
+        how: `top-quarter price per m² of ${ppm.length} similar homes ${where} × ${num(l.floor_m2)} m²` };
+    }
+    if (l.bedrooms) {
+      const adj = set.filter(c => c.bedrooms && Math.abs(c.bedrooms - l.bedrooms) <= 1)
+                     .map(c => c.price * (1 + .12 * (l.bedrooms - c.bedrooms)));
+      if (adj.length >= 3) return { value: quantile(adj, .75), n: adj.length,
+        how: `top quarter of ${adj.length} similar ${num(l.bedrooms)}-bed asking prices ${where} (bedroom-adjusted)` };
+    }
+  }
+  return null;
+}
+const R = v => rand(Math.round(v));
+const round1k = v => Math.round(v / 1000) * 1000;
+
+window.dfFlip = id => {
+  const l = all.find(x => x.id === id);
+  if (!l) return;
+  const est = resaleEstimate(l);
+  const monthly = (l.levies || 0) + (l.rates || 0) + 2500;
+  openModal(`
+    <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
+    <h2>Flip calculator</h2>
+    <p class="meta">${esc(l.title || l.suburb)} · asking ${rand(l.price)}</p>
+    <form class="calc" id="calc" onsubmit="return false">
+      <div><label class="field">Your offer (R)</label><input type="number" id="c_offer" step="10000" value="${l.price || ""}"></div>
+      <div><label class="field">Resale value after renovation (R)</label><input type="number" id="c_arv" step="10000" value="${est ? round1k(est.value) : ""}"></div>
+      <p class="meta full">${est ? `Estimate: ${esc(est.how)}. Change it if you know better (check “Area sold prices”).`
+                                  : "Not enough similar homes yet to estimate. Enter what you think it would sell for once renovated."}</p>
+      <div><label class="field">Renovation budget (R)</label><input type="number" id="c_reno" step="5000" value="150000"></div>
+      <div><label class="field">Months until sold</label><input type="number" id="c_months" step="1" min="1" value="6"></div>
+      <div><label class="field">Monthly running costs (R)</label><input type="number" id="c_monthly" step="100" value="${monthly}"></div>
+      <div><label class="field">Transfer & bond attorney fees (R)</label><input type="number" id="c_fees" step="1000" value="${l.price ? round1k(l.price * .015 + 8000) : 40000}"></div>
+      <div><label class="field">Agent commission on resale (% incl. VAT)</label><input type="number" id="c_comm" step="0.1" value="6.9"></div>
+      <div><label class="field">Other selling costs (R)</label><input type="number" id="c_sell" step="1000" value="10000"></div>
+      <div class="full"><label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="c_bond"> Buying with a bond</label></div>
+      <div><label class="field">Deposit (%)</label><input type="number" id="c_dep" step="1" value="10"></div>
+      <div><label class="field">Interest rate (%)</label><input type="number" id="c_rate" step="0.25" value="10.5"></div>
+      <p class="meta full">Running costs start as this listing's levies + rates${l.levies || l.rates ? "" : " (not known)"} + R2 500 for insurance and utilities. Fees and commission are typical estimates; ask an attorney and agent for quotes.</p>
+    </form>
+    <div class="calc-out" id="calcOut"></div>`);
+  const v = k => Number($("c_" + k).value) || 0;
+  function calc() {
+    const offer = v("offer"), arv = v("arv"), reno = v("reno"), months = v("months");
+    const duty = transferDuty(offer), fees = v("fees");
+    const bond = $("c_bond").checked, loan = bond ? offer * (1 - v("dep") / 100) : 0;
+    const interest = loan * (v("rate") / 100) / 12 * months;
+    const holding = v("monthly") * months + interest;
+    const selling = arv * v("comm") / 100 + v("sell");
+    const total = offer + duty + fees + reno + holding + selling;
+    const profit = arv - total;
+    const cash = (bond ? offer - loan : offer) + duty + fees + reno + holding;
+    const maxOffer = arv * .70 - reno;
+    const row = (k, val, cls = "") => `<div class="row ${cls}"><span>${k}</span><span>${val}</span></div>`;
+    $("calcOut").innerHTML = !arv ? `<p class="meta">Enter a resale value to see the numbers.</p>` :
+      row("Offer price", R(offer)) +
+      row("Transfer duty (SARS 2026/27)", R(duty)) +
+      row("Attorney fees", R(fees)) +
+      row("Renovation", R(reno)) +
+      row(`Running costs, ${months} months${bond ? " (incl. bond interest " + R(interest) + ")" : ""}`, R(holding)) +
+      row("Selling: commission + other", R(selling)) +
+      row("Total cost", R(total), "total") +
+      row("Resale value", R(arv)) +
+      row("Profit before tax", R(profit), "total") +
+      row("Return on your cash", cash > 0 ? (profit / cash * 100).toFixed(0) + "%" : "–") +
+      `<div class="verdict ${offer <= maxOffer ? "good" : "bad"}">70% rule: offer at most ${R(maxOffer)}
+        (resale × 70% − renovation). ${offer <= maxOffer ? "Your offer is within it." : `Your offer is ${R(offer - maxOffer)} over.`}</div>
+       <p class="meta" style="margin-top:10px">Profit from flipping is usually taxed as income (not capital gains). Check with an accountant. These are estimates, not advice.</p>`;
+  }
+  $("calc").addEventListener("input", calc);
+  calc();
+};
 </script>
 </body>
 </html>

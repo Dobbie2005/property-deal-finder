@@ -11,6 +11,10 @@ GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "").strip()
 GMAIL_APP_PASSWORD = "".join(os.environ.get("GMAIL_APP_PASSWORD", "").split())
 LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "3"))  # re-read the last N days each run
 
+# Deal alerts: new listings / price drops at least this % below similar homes are queued; each
+# recipient (set up on the map, under Settings) picks their own minimum.
+ALERT_QUEUE_MIN = 5
+
 # Optional: send a daily summary of new good deals to this address
 NOTIFY_EMAIL = os.environ.get("NOTIFY_EMAIL", "").strip()
 NOTIFY_MIN_SCORE = float(os.environ.get("NOTIFY_MIN_SCORE", "10"))  # % below suburb median
@@ -42,6 +46,9 @@ COMPS_WINDOW_DAYS = 180  # only compare against listings seen in the last ~6 mon
 MIN_COMPS = 3            # need at least this many similar listings to give a score
 NEARBY_KM = 3            # the map's "+ nearby suburbs" option looks this far around a suburb
 MIN_PRICE = 50_000       # ignore smaller "prices" (levies, rates, rentals)
+BEDROOM_STEP = 0.12      # when comparing a 3-bed with a 4-bed, adjust the price by ~12% per bedroom
+MAX_COMP_PRICE = 20_000_000  # listings above this are left out of comparisons
+OUTLIER_FACTOR = 3       # ...and so are listings over 3x (or under 1/3 of) the typical price
 
 # --- Keeping the free database small (500 MB limit) -----------------------------
 KEEP_LISTINGS_DAYS = 365   # listings not seen in an alert for a year are deleted
@@ -52,5 +59,6 @@ DB_WARN_MB = 400           # the run summary warns when the database gets this b
 NOMINATIM_EMAIL = os.environ.get("NOMINATIM_EMAIL", "")
 MAX_GEOCODES_PER_RUN = 60
 
-# --- Property24 area-trend links (one link lookup per new listing) ---------------
-MAX_TREND_LOOKUPS_PER_RUN = 60
+# --- Property24 listing pages (floor size, plot size, levies, rates, area-trend link) ---
+# Each new Property24 listing is visited once, politely; Private Property pages are never visited.
+MAX_PAGE_VISITS_PER_RUN = 40

@@ -198,17 +198,55 @@ def test_nearby_suburbs_fallback_score():
     assert x["wide_score"] == round((2_600_000 - 2_000_000) / 2_600_000 * 100, 1)
 
 
-def test_trend_link_from_resolved_listing_url():
-    rows = [{"id": "p24:117748166", "source": "property24",
-             "url": "https://www.property24.com/General/RedirectToListing?listingNumber=P24-117748166"}]
-    import run as r
-    orig = r.RedirectResolver
-    r.RedirectResolver = lambda limit: (lambda url: "https://www.property24.com/for-sale/vierlanden/durbanville/western-cape/9559/117748166")
-    try:
-        assert r.add_trend_links(rows, 10) == 1
-    finally:
-        r.RedirectResolver = orig
+def test_property24_listing_page_facts_and_trend_link():
+    from dealfinder.details import parse_property24_page
+    html = """<html><body><h1>1 Bedroom Townhouse for Sale in Vierlanden</h1>
+      <ul><li>Bedrooms: 1</li><li>Bathrooms: 1</li><li>Parking: 1</li></ul>
+      <div><span>Floor Size</span><span>50 m²</span></div><div><span>Erf Size</span><span>1 250 m²</span></div>
+      <div><span>Levies</span><span>R 1 400</span></div><div><span>Rates and Taxes</span><span>R 580</span></div>
+      <h2>Similar listings</h2><div>Floor Size 999 m²</div></body></html>"""
+    facts = parse_property24_page(html)
+    assert facts == {"floor_m2": 50, "erf_m2": 1250, "levies": 1400, "rates": 580, "bedrooms": 1, "bathrooms": 1}
+    assert parse_property24_page("<p>Erf Size 1,5 ha</p>")["erf_m2"] == 15_000
+
+    class FakeReader:
+        visits, limit, blocked = 0, 10, None
+        def read(self, url):
+            self.visits += 1
+            return ("https://www.property24.com/for-sale/vierlanden/durbanville/western-cape/9559/117748166", html)
+    rows = [{"id": "p24:117748166", "source": "property24", "bedrooms": 1,
+             "url": "https://www.property24.com/General/RedirectToListing?listingNumber=P24-117748166"},
+            {"id": "pp:T1", "source": "privateproperty", "url": "https://www.privateproperty.co.za/ld/T1"}]
+    assert run.add_listing_details(rows, FakeReader(), "now") == 1          # Private Property is never visited
     assert rows[0]["trends_url"] == "https://www.property24.com/durbanville/vierlanden/property-trends/9559"
+    assert (rows[0]["floor_m2"], rows[0]["levies"], rows[0]["details_checked"]) == (50, 1400, "now")
+    assert "floor_m2" not in rows[1]
+
+
+def test_listing_page_reader_respects_robots_and_blocks():
+    from dealfinder.details import ListingPageReader
+    import dealfinder.details as d
+
+    class Resp:
+        def __init__(self, url, status=200, text="ok"): self.url, self.status_code, self.text = url, status, text
+    calls = []
+    robots = "User-agent: *\nDisallow: /ld/\n"
+    def fake_get(url, **kw):
+        calls.append(url)
+        if url.endswith("/robots.txt"):
+            return Resp(url, 200, robots)
+        return Resp(url, 429 if "slow" in url else 200, "<html></html>")
+    orig = d.requests.get
+    d.requests.get = fake_get
+    try:
+        r = ListingPageReader(limit=5, pause=0)
+        assert r.read("https://www.privateproperty.co.za/ld/T5666495") is None   # robots.txt says no
+        assert r.read("https://www.property24.com/for-sale/x/1") is not None
+        assert r.read("https://www.property24.com/slow/2") is None and r.blocked
+        assert r.read("https://www.property24.com/for-sale/x/3") is None         # stopped after being told to slow down
+    finally:
+        d.requests.get = orig
+    assert "https://www.privateproperty.co.za/ld/T5666495" not in calls
 
 
 def test_real_privateproperty_daily_summary():
@@ -280,3 +318,37 @@ def test_private_property_metro_is_not_used_as_the_town():
     assert (info["suburb"], info["city"]) == ("Kenridge", "Durbanville")
     info = match_listing("https://www.privateproperty.co.za/for-sale/western-cape/cape-town/northern-suburbs/oakglen/T5536663")
     assert (info["suburb"], info["city"]) == ("Oakglen", None)   # worked out later from the suburb
+
+
+def test_one_bedroom_more_or_less_counts_with_an_adjustment():
+    now = datetime.now(timezone.utc)
+    rows = [_row("x", 2_000_000, beds=3, now=now), _row(1, 2_400_000, beds=3, now=now),
+            _row(2, 3_000_000, beds=4, now=now), _row(3, 1_800_000, beds=2, now=now),
+            _row(4, 2_100_000, beds=3, now=now)]
+    score_listings(rows, now)
+    x = rows[0]
+    assert x["score_basis"] == "price_similar_beds" and x["comps_count"] == 4
+    # 2.4m, 2.1m as-is; 3.0m 4-bed -> 2.64m; 1.8m 2-bed -> 2.016m; median of those = 2.25m
+    assert x["suburb_median"] == 2_250_000.0
+
+
+def test_outliers_and_very_expensive_listings_are_left_out():
+    now = datetime.now(timezone.utc)
+    rows = [_row("x", 2_000_000, now=now)] + [_row(i, p, now=now) for i, p in
+            enumerate([2_200_000, 2_300_000, 2_400_000, 9_500_000, 25_000_000])]
+    score_listings(rows, now)
+    assert rows[0]["comps_count"] == 3 and rows[0]["suburb_median"] == 2_300_000
+
+
+def test_deal_alerts_are_queued_for_new_listings_and_price_drops():
+    rows = [
+        {"id": "a", "region": "polokwane", "deal_score": 18.0, "wide_score": 18.0},
+        {"id": "b", "region": "polokwane", "deal_score": None, "wide_score": 9.0},
+        {"id": "c", "region": "polokwane", "deal_score": 2.0, "wide_score": 2.0},      # not a deal
+        {"id": "d", "region": "durbanville", "deal_score": 12.0, "duplicate_of": "a"},  # second copy
+        {"id": "e", "region": "other", "deal_score": 30.0},                             # outside our areas
+        {"id": "f", "region": "durbanville", "deal_score": 7.0},                        # old listing, no change
+    ]
+    q = run.queue_deal_alerts(rows, new_ids={"a", "c", "d", "e"}, drops={"b": 2_500_000})
+    assert q == [{"listing_id": "a", "reason": "new", "old_price": None},
+                 {"listing_id": "b", "reason": "price_drop", "old_price": 2_500_000}]
