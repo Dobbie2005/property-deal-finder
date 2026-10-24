@@ -814,8 +814,20 @@ async function openSettings() {
       <button class="primary small" type="submit">Add</button>
     </form>
     <p class="msg" id="rcpMsg"></p>
+    ${admin ? `<h3>People</h3>
+    <p class="meta">Who can sign in to the map. You choose their password; give it to them yourself (they can change it with “Forgot your password?” on the sign-in screen).</p>
+    <div id="people"><p class="meta">Loading…</p></div>
+    <form id="personAdd" class="figform" style="margin-top:10px">
+      <div class="full"><label class="field">Email</label><input type="email" id="pa_email" required placeholder="name@gmail.com" autocomplete="off"></div>
+      <div class="full"><label class="field">Password (8+ characters)</label>
+        <div style="display:flex;gap:6px"><input type="text" id="pa_pass" required minlength="8" autocomplete="new-password" style="flex:1">
+        <button type="button" class="watchbtn" id="pa_gen">Make one</button></div></div>
+      <label class="full" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="pa_admin"> Admin (can change areas, names and people)</label>
+      <label class="full" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="pa_weekly"> Send them the weekly summary</label>
+      <div class="full"><button class="primary" type="submit">Create account</button><p class="msg" id="pa_msg"></p></div>
+    </form>` : ""}
     <h3>Account</h3>
-    <p class="meta">Signed in as ${esc(user?.email || "")}</p>
+    <p class="meta">Signed in as ${esc(user?.email || "")}${admin ? " · admin" : ""}</p>
     <button class="watchbtn" id="signOutBtn">Sign out</button>`);
   $("rcpAdd").addEventListener("submit", async e => {
     e.preventDefault();
@@ -835,6 +847,75 @@ async function openSettings() {
     openSettings();
   }));
   $("signOutBtn").addEventListener("click", async () => { closeModal(); await sb.auth.signOut(); });
+  if (admin) setUpPeople();
+}
+
+// ----- People (admin only): accounts are made by a Supabase server function that checks you're an admin --
+async function peopleCall(body) {
+  const { data, error } = await sb.functions.invoke("manage-people", { body });
+  if (error) {
+    let msg = error.message;
+    try { msg = (await error.context.json()).error || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return data;
+}
+const newPassword = () => {
+  const abc = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const r = crypto.getRandomValues(new Uint32Array(12));
+  return Array.from(r, x => abc[x % abc.length]).join("");
+};
+function showPeople(people) {
+  const box = $("people");
+  if (!box) return;
+  box.innerHTML = people.map(p => `
+    <div class="rcp" data-email="${esc(p.email)}">
+      <div><b>${esc(p.email)}</b>${p.is_admin ? ' <span class="chip stage">admin</span>' : ""}${p.me ? ' <span class="meta">(you)</span>' : ""}
+        <div class="meta">${!p.has_account ? "invited, no account yet" : p.last_sign_in_at ? "last signed in " + ageText(p.last_sign_in_at) : "hasn't signed in yet"}</div>
+        <div class="opts" style="margin-top:4px">
+          ${p.has_account ? `<button class="areabtn" data-act="set_password">Set password</button>` : `<button class="areabtn" data-act="create">Create account</button>`}
+          ${p.me ? "" : `<button class="areabtn" data-act="set_admin">${p.is_admin ? "Remove admin" : "Make admin"}</button>`}
+        </div></div>
+      ${p.me ? "" : `<button class="watchbtn" data-act="remove">Remove</button>`}
+    </div>`).join("") || `<p class="meta">No one yet.</p>`;
+  box.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", async () => {
+    const email = b.closest(".rcp").dataset.email, act = b.dataset.act, p = people.find(x => x.email === email);
+    try {
+      if (act === "set_password" || act === "create") {
+        const pw = prompt(`New password for ${email} (8+ characters). Leave empty to make one:`, "");
+        if (pw === null) return;
+        const password = pw.trim() || newPassword();
+        if (password.length < 8) return alert("The password needs at least 8 characters.");
+        const out = await peopleCall({ action: act, email, password });
+        alert(`Done. ${email}'s password is now:\n\n${password}\n\nGive it to them, then they can sign in.`);
+        if (out.people) showPeople(out.people);
+      } else if (act === "set_admin") {
+        const out = await peopleCall({ action: "set_admin", email, admin: !p.is_admin });
+        showPeople(out.people);
+      } else if (act === "remove") {
+        if (!confirm(`Remove ${email}? They won't be able to sign in any more. Their notes and deals stay.`)) return;
+        const out = await peopleCall({ action: "remove", email });
+        showPeople(out.people);
+      }
+    } catch (e) { alert("Couldn't do that: " + e.message); }
+  }));
+}
+async function setUpPeople() {
+  $("pa_gen").addEventListener("click", () => { $("pa_pass").value = newPassword(); });
+  $("personAdd").addEventListener("submit", async e => {
+    e.preventDefault();
+    const email = $("pa_email").value.trim().toLowerCase(), password = $("pa_pass").value;
+    $("pa_msg").className = "msg"; $("pa_msg").textContent = "Creating…";
+    try {
+      const out = await peopleCall({ action: "create", email, password, admin: $("pa_admin").checked });
+      if ($("pa_weekly").checked) await sb.from("alert_recipients").upsert({ email, active: false, weekly_digest: true, added_by: user?.email }, { onConflict: "email" });
+      $("pa_msg").textContent = `Account created. Give ${email} this password: ${password}`;
+      $("pa_email").value = ""; $("pa_pass").value = ""; $("pa_admin").checked = false; $("pa_weekly").checked = false;
+      showPeople(out.people);
+    } catch (err) { $("pa_msg").className = "msg err"; $("pa_msg").textContent = err.message; }
+  });
+  try { showPeople((await peopleCall({ action: "list" })).people); }
+  catch (e) { $("people").innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
 }
 $("settingsBtn").addEventListener("click", openSettings);
 

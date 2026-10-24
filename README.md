@@ -192,3 +192,10 @@ the calculator, add sold figures (and remove their own), and change their own em
 **Merge into…** is for suburbs that aren't real (e.g. "Kuils River South"): its listings count as the other
 suburb everywhere, future listings advertised under that name go there too, and its outline and sold figures
 can move across. Undo it under Outlines to do → Merged suburbs.
+
+## People (admin only)
+Settings → **People** lists everyone who can sign in. The admin can create an account with a password they
+choose ("Make one" suggests a strong one), set a new password, make someone an admin, or remove them.
+This runs through the Supabase Edge Function `supabase/functions/manage-people` (deployed to the project),
+which checks the caller is an admin before using the project's secret key. The secret key never reaches the
+browser. Sign-ups stay invite-only.
