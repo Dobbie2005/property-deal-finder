@@ -135,7 +135,9 @@ The **Areas** button outlines each suburb that has listings. Outlines come from 
 (each suburb is looked up once by the listing check). Most South African suburbs are only a point on
 OpenStreetMap, so those get a **rough dotted outline** (the ground closer to that suburb than to its
 neighbours). Open the area and choose **Adjust outline** to drag its edge into place, or **Start again**
-to draw it. Your outlines are never overwritten.
+to draw it. Your outlines are never overwritten: the database itself refuses changes to them from
+anything but the map. With Areas on, **Outlines to do** (top left) lists suburbs with no or only a rough
+outline, and **＋ Add a suburb** adds one that has no listings yet.
 
 Each area also holds **what homes actually sell for** there. Copy figures in from Property24's area
 trends, a Lightstone report or an agent (for example "3-bed houses, sold average R2.4m"). Then:

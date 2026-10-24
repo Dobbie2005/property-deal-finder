@@ -133,6 +133,9 @@
   #drawbar { position: absolute; z-index: 1001; top: 10px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 24px));
     background: var(--panel); color: var(--ink); border: 2px solid var(--area); border-radius: 12px; padding: 10px 12px; box-shadow: 0 4px 18px rgba(0,0,0,.3); font-size: 13.5px; }
   #drawbar[hidden] { display: none; }
+  .legend.todo summary { cursor: pointer; font-weight: 600; color: var(--area); }
+  .todolist { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; min-width: 190px; }
+  .todolist li { padding: 2px 0; }
   #drawbar .btns { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   main { position: relative; }
 
@@ -934,10 +937,63 @@ function approxOutline(a) {
   return { type: "Polygon", coordinates: [[...ring, ring[0]]] };
 }
 
+// Panel on the map: suburbs that still need an outline, and "add a suburb"
+const todoCtl = L.control({ position: "topleft" });
+todoCtl.onAdd = () => {
+  const d = L.DomUtil.create("div", "legend todo");
+  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+  return d;
+};
+todoCtl.addTo(map);
+let todoOpen = false;
+function drawTodo() {
+  const box = document.querySelector(".legend.todo");
+  if (!box) return;
+  box.style.display = areasOn && !drawing ? "" : "none";
+  if (!areasOn) return;
+  const inRegion = Object.values(areas).filter(a => region === "all" || a.region === region);
+  const none = inRegion.filter(a => !a.boundary && a.lat == null).sort((x, y) => x.name.localeCompare(y.name));
+  const rough = inRegion.filter(a => !a.boundary && a.lat != null).sort((x, y) => x.name.localeCompare(y.name));
+  const item = (a, tag) => `<li><button class="areabtn" data-area="${esc(a.key)}">${esc(a.name)}</button> <span class="meta">${tag}</span></li>`;
+  box.innerHTML = `<details ${todoOpen ? "open" : ""}><summary>Outlines to do (${none.length + rough.length})</summary>
+    <div class="meta" style="max-width:230px;margin-bottom:4px">Tap a suburb, then <b>Draw outline</b> or <b>Adjust outline</b>.</div>
+    <ul class="todolist">${none.map(a => item(a, "no outline")).join("")}${rough.map(a => item(a, "rough")).join("")}</ul>
+    <button class="watchbtn" id="addAreaBtn" style="margin-top:6px">＋ Add a suburb</button></details>`;
+  box.querySelector("details").addEventListener("toggle", e => { todoOpen = e.target.open; });
+  box.querySelectorAll("[data-area]").forEach(b => b.addEventListener("click", () => dfArea(b.dataset.area)));
+  $("addAreaBtn").addEventListener("click", openAddArea);
+}
+function openAddArea() {
+  const towns = [...new Set([...Object.values(areas), ...all].filter(x => region === "all" || x.region === region).map(x => x.city).filter(Boolean))].sort();
+  openModal(`
+    <button class="closebtn" onclick="dfClose()" aria-label="Close">×</button>
+    <h2>Add a suburb</h2>
+    <p class="meta">For a suburb you want to watch that has no listings yet. Name it the way Property24 does, so listings there get matched to it.</p>
+    <form id="addAreaForm">
+      <label class="field">Suburb</label><input type="text" id="na_name" required placeholder="e.g. Sonstraal Heights">
+      <label class="field">Town</label><input type="text" id="na_city" required list="na_towns" value="${esc(towns[0] || "")}">
+      <datalist id="na_towns">${towns.map(t => `<option value="${esc(t)}">`).join("")}</datalist>
+      <button class="primary" type="submit">Add and draw its outline</button><p class="msg" id="na_msg"></p>
+    </form>`);
+  $("addAreaForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const name = $("na_name").value.trim(), city = $("na_city").value.trim();
+    const key = normName(city) + "/" + normName(name);
+    if (areas[key]) { closeModal(); dfArea(key); return; }
+    const reg = region !== "all" ? region : (Object.values(areas).find(a => normName(a.city) === normName(city))?.region || null);
+    const a = { key, name, city, region: reg, lat: null, lng: null };
+    const { error } = await sb.from("areas").insert({ ...a, updated_by: user?.email || null });
+    if (error) { $("na_msg").className = "msg err"; $("na_msg").textContent = error.message; return; }
+    areas[key] = { ...a, updated_at: new Date().toISOString() };
+    dfDrawArea(key);
+  });
+}
+
 function drawAreas() {
   if (!areaLayer) return;
   areaLayer.clearLayers();
   document.getElementById("areasBtn").classList.toggle("on", areasOn);
+  drawTodo();
   if (!areasOn) return;
   for (const a of Object.values(areas)) {
     if (region !== "all" && a.region !== region) continue;
@@ -1063,7 +1119,7 @@ window.dfArea = (key, listingId) => {
 };
 
 // ----- Drawing / adjusting an outline (Leaflet-Geoman) ---------------------------------------------
-let drawing = null;  // { key, area, layer }
+var drawing = null;  // { key, area, layer } (var: drawTodo may run before this line)
 function drawBar(html) { const bar = $("drawbar"); bar.innerHTML = html; bar.hidden = !html; }
 function stopDrawing() {
   if (map.pm) { map.pm.disableDraw(); }
@@ -1079,7 +1135,7 @@ function startEditing(layer) {
 }
 function startNewShape() {
   if (drawing.layer) { map.removeLayer(drawing.layer); drawing.layer = null; }
-  drawBar(`<b>${esc(drawing.area.name)}</b>: ${isPhone() ? "tap" : "click"} around the edge of the suburb, then ${isPhone() ? "tap" : "click"} the first point again to finish.
+  drawBar(`<b>${esc(drawing.area.name)}</b>: ${drawing.area.lat == null ? "find the suburb (switch to Satellite top-right if it helps), then " : ""}${isPhone() ? "tap" : "click"} around its edge, and ${isPhone() ? "tap" : "click"} the first point again to finish.
     <div class="btns"><button class="watchbtn" onclick="dfStopDrawing()">Cancel</button></div>`);
   map.off("pm:create");
   map.once("pm:create", e => { drawing.layer = e.layer; startEditing(e.layer); });
@@ -1097,13 +1153,18 @@ window.dfDrawArea = (key, listingId) => {
   areasOn = true; try { localStorage.setItem("areas", "on"); } catch (e) {}
   drawAreas();
   drawing = { key, area: a, layer: null };
+  drawTodo();
   const start = a.boundary || approxOutline(a);
   if (start) {
     drawing.layer = L.geoJSON(start, { style: { color: "#7048e8", weight: 3, fillOpacity: .12 } }).addTo(map);
     map.fitBounds(drawing.layer.getBounds(), { padding: [30, 30] });
     startEditing(drawing.layer);
   } else {
+    const near = all.find(l => areaKeyOf(l) === key && l.lat != null)
+      || all.find(l => normName(l.city) === normName(a.city) && l.lat != null && l.pin_level === "town");
     if (a.lat != null) map.setView([a.lat, a.lng], 15);
+    else if (near) map.setView([near.lat, near.lng], 14);
+    else if (REGIONS[a.region]) map.setView(REGIONS[a.region].center, 13);
     startNewShape();
   }
 };
